@@ -5,7 +5,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: './',
+  base: '/CookingApp/',
   plugins: [
     react(),
     tailwindcss(),
@@ -21,8 +21,8 @@ export default defineConfig({
         display: 'standalone',
         orientation: 'portrait-primary',
         lang: 'es',
-        start_url: './',
-        scope: './',
+        start_url: '/CookingApp/',
+        scope: '/CookingApp/',
         icons: [
           {
             src: 'icon-192.svg',
@@ -38,7 +38,7 @@ export default defineConfig({
           },
         ],
         share_target: {
-          action: './',
+          action: '/CookingApp/',
           method: 'GET',
           params: {
             title: 'title',
