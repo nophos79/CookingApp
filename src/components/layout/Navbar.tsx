@@ -11,6 +11,7 @@ import {
   ChefHat,
   Sparkles,
   Archive,
+  Cloud,
 } from 'lucide-react';
 
 export type NavTab = 'home' | 'categories' | 'add' | 'favorites' | 'library';
@@ -22,6 +23,7 @@ interface NavbarProps {
   onSearchChange: (q: string) => void;
   onOpenSettings?: () => void;
   onOpenBackup?: () => void;
+  onOpenDrive?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -31,6 +33,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSearchChange,
   onOpenSettings,
   onOpenBackup,
+  onOpenDrive,
 }) => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
@@ -159,6 +162,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className="p-1.5 rounded-full text-neutral-500 hover:text-amber-800 hover:bg-neutral-100 transition"
               >
                 <Archive className="w-4 h-4 text-amber-600" />
+              </button>
+            )}
+
+            {/* Google Drive & Storage Mode Modal Trigger */}
+            {onOpenDrive && (
+              <button
+                type="button"
+                onClick={onOpenDrive}
+                title="Google Drive y Almacenamiento"
+                className="p-1.5 rounded-full text-neutral-500 hover:text-amber-800 hover:bg-neutral-100 transition"
+              >
+                <Cloud className="w-4 h-4 text-amber-600" />
               </button>
             )}
           </div>

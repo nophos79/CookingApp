@@ -1,7 +1,16 @@
 import { db } from '../db/database';
 import type { Category, Recipe, RecipeFilter } from '../types/recipe';
+import { googleDriveService } from './drive/googleDriveService';
 
 export const recipeService = {
+  // Helper to sync to Drive in background if mode is hybrid or drive-only
+  triggerAutoSyncIfEnabled() {
+    const cfg = googleDriveService.getConfig();
+    if (cfg.storageMode !== 'local-only' && googleDriveService.isConnected()) {
+      googleDriveService.uploadToDrive().catch((err) => console.warn('Auto-sync a Google Drive falló:', err));
+    }
+  },
+
   // Get all recipes
   async getAll(): Promise<Recipe[]> {
     return await db.recipes.orderBy('createdAt').reverse().toArray();
@@ -22,6 +31,7 @@ export const recipeService = {
     };
 
     await db.recipes.add(newRecipe);
+    this.triggerAutoSyncIfEnabled();
     return newRecipe;
   },
 
@@ -31,6 +41,7 @@ export const recipeService = {
       ...updates,
       updatedAt: new Date().toISOString(),
     });
+    this.triggerAutoSyncIfEnabled();
   },
 
   // Toggle favorite
@@ -39,12 +50,14 @@ export const recipeService = {
     if (!recipe) throw new Error('Receta no encontrada');
     const newState = !recipe.isFavorite;
     await db.recipes.update(id, { isFavorite: newState, updatedAt: new Date().toISOString() });
+    this.triggerAutoSyncIfEnabled();
     return newState;
   },
 
   // Delete recipe
   async delete(id: string): Promise<void> {
     await db.recipes.delete(id);
+    this.triggerAutoSyncIfEnabled();
   },
 
   // Search and filter recipes

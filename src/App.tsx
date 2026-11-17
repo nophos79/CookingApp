@@ -15,6 +15,7 @@ import { ImportHub } from './components/import/ImportHub';
 import { AISettingsModal } from './components/settings/AISettingsModal';
 import { PwaInstallPrompt } from './components/pwa/PwaInstallPrompt';
 import { BackupModal } from './components/backup/BackupModal';
+import { StorageSettingsModal } from './components/settings/StorageSettingsModal';
 
 export const App: React.FC = () => {
   // Navigation & View State
@@ -30,6 +31,7 @@ export const App: React.FC = () => {
   const [isManualCreation, setIsManualCreation] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isBackupOpen, setIsBackupOpen] = useState(false);
+  const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
   const [sharedImportData, setSharedImportData] = useState<{ url?: string; text?: string } | null>(null);
 
   // Web Share Target parameters listener (e.g. from YouTube or WhatsApp share sheet on Android)
@@ -270,6 +272,7 @@ export const App: React.FC = () => {
         onSearchChange={setSearchQuery}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenBackup={() => setIsBackupOpen(true)}
+        onOpenDrive={() => setIsDriveModalOpen(true)}
       />
 
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 pt-4 sm:pt-6">
@@ -345,6 +348,12 @@ export const App: React.FC = () => {
         isOpen={isBackupOpen}
         totalRecipes={recipes.length}
         onClose={() => setIsBackupOpen(false)}
+      />
+
+      {/* Google Drive & Storage Settings Modal */}
+      <StorageSettingsModal
+        isOpen={isDriveModalOpen}
+        onClose={() => setIsDriveModalOpen(false)}
       />
 
       {/* Android PWA Install Banner */}
