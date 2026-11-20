@@ -197,7 +197,7 @@ export async function extractWithGemini(
   context?: { title?: string; originUrl?: string; author?: string; generateFromTitleIfEmpty?: boolean; modelOverride?: string },
   attemptedModels: string[] = []
 ): Promise<ExtractedRecipeData> {
-  let model = context?.modelOverride && context.modelOverride !== 'auto'
+  let model = context?.modelOverride && context.modelOverride !== 'auto' && !blacklistedModels.has(context.modelOverride)
     ? context.modelOverride
     : await getBestGeminiModel(apiKey);
   if (attemptedModels.includes(model)) {
@@ -254,28 +254,41 @@ ${rawText || recipeTopic}
 Extrae o genera todos los ingredientes necesarios con cantidades y unidades, y los pasos ordenados de elaboración en formato JSON estricto.`;
   }
 
-  const directBody = {
-    contents: [{ parts: [{ text: directPrompt }] }],
-    systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-    generationConfig: {
-      responseMimeType: 'application/json',
-      temperature: 0.2,
-    },
-  };
+  // Prepend system instruction directly to user prompt to guarantee 100% compatibility across ALL Gemini models
+  // (Prevents "Developer instruction is not enabled for this model" errors on models where systemInstruction is not allowed)
+  const fullPrompt = `${SYSTEM_INSTRUCTION}\n\n=========================================\nDATOS Y CONTEXTO DE LA RECETA A ESTRUCTURAR:\n${directPrompt}\n\nIMPORTANTE: Devuelve ÚNICA Y EXCLUSIVAMENTE el objeto JSON válido sin texto adicional.`;
 
-  const directResponse = await fetch(url, {
+  const makePayload = (useJsonMime: boolean) => ({
+    contents: [{ parts: [{ text: fullPrompt }] }],
+    generationConfig: {
+      temperature: 0.2,
+      ...(useJsonMime ? { responseMimeType: 'application/json' } : {}),
+    },
+  });
+
+  let directResponse = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(directBody),
+    body: JSON.stringify(makePayload(true)),
     signal: AbortSignal.timeout(35000), // Generous 35s timeout to prevent premature aborts on mobile
   });
+
+  // If rejected with 400 (e.g. responseMimeType not supported on model), retry with standard payload
+  if (!directResponse.ok && directResponse.status === 400) {
+    directResponse = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(makePayload(false)),
+      signal: AbortSignal.timeout(35000),
+    });
+  }
 
   if (!directResponse.ok) {
     const errorData = await directResponse.json().catch(() => ({}));
     const errorMsg = errorData?.error?.message || '';
 
-    // If model is not found or deprecated, blacklist it immediately and retry with next valid model
-    if (errorMsg.includes('not found') || errorMsg.includes('not supported')) {
+    // If model is not found, deprecated, or has developer instruction restrictions
+    if (errorMsg.includes('not found') || errorMsg.includes('not supported') || errorMsg.includes('not enabled')) {
       blacklistedModels.add(model);
       if (cachedModelName === model) cachedModelName = null;
       if (currentAttempts.length < 2) {
@@ -334,7 +347,7 @@ Esquema: { "ingredients": [{"name": "ingrediente", "amount": "100", "unit": "g"}
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: rescuePrompt }] }],
-          generationConfig: { responseMimeType: 'application/json' },
+          generationConfig: { temperature: 0.2 },
         }),
         signal: AbortSignal.timeout(15000),
       });
