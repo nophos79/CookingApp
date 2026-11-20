@@ -7,7 +7,7 @@ export const recipeService = {
   triggerAutoSyncIfEnabled() {
     const cfg = googleDriveService.getConfig();
     if (cfg.storageMode !== 'local-only' && googleDriveService.isConnected()) {
-      googleDriveService.uploadToDrive().catch((err) => console.warn('Auto-sync a Google Drive falló:', err));
+      googleDriveService.sync().catch((err) => console.warn('Auto-sync a Google Drive falló:', err));
     }
   },
 

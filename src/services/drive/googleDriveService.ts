@@ -17,6 +17,19 @@ declare global {
 let cachedAccessToken: string | null = null;
 let tokenExpiresAt = 0;
 
+/**
+ * Checks whether a photo string represents an actual user photograph
+ * (JPEG, PNG, WebP or external URL) as opposed to a generated placeholder SVG.
+ */
+export function isRealUserPhoto(photo?: string): boolean {
+  if (!photo || typeof photo !== 'string') return false;
+  const p = photo.trim();
+  if (p.length < 50) return false;
+  // Seed SVG placeholders (data:image/svg+xml...) are not real photos
+  if (p.startsWith('data:image/svg+xml')) return false;
+  return true;
+}
+
 export const googleDriveService = {
   getConfig(): DriveConfig {
     try {
@@ -40,7 +53,18 @@ export const googleDriveService = {
     return updated;
   },
 
+  /**
+   * Returns true if user has configured Google Drive (Client ID and logged in userEmail saved)
+   */
   isConnected(): boolean {
+    const config = this.getConfig();
+    return !!(config.clientId && config.userEmail);
+  },
+
+  /**
+   * Returns true if an unexpired access token is available right now
+   */
+  hasValidToken(): boolean {
     return !!this.getAccessToken();
   },
 
@@ -177,7 +201,7 @@ export const googleDriveService = {
    */
   async getOrCreateFolder(token: string): Promise<string> {
     const query = encodeURIComponent(`name = '${DRIVE_FOLDER_NAME}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
-    const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)`;
+    const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=createdTime asc&fields=files(id,name)`;
 
     const res = await fetch(searchUrl, {
       headers: { Authorization: `Bearer ${token}` },
@@ -218,11 +242,12 @@ export const googleDriveService = {
   },
 
   /**
-   * Find database file in Drive
+   * Find database file in Drive, ordering by modifiedTime desc to always get the latest,
+   * and purging duplicate stale files if any exist.
    */
   async findDatabaseFile(token: string, folderId: string): Promise<string | null> {
     const query = encodeURIComponent(`name = '${DRIVE_FILE_NAME}' and '${folderId}' in parents and trashed = false`);
-    const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,modifiedTime)`;
+    const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=modifiedTime desc&fields=files(id,name,modifiedTime)`;
 
     const res = await fetch(searchUrl, {
       headers: { Authorization: `Bearer ${token}` },
@@ -231,6 +256,15 @@ export const googleDriveService = {
     if (!res.ok) return null;
     const data = await res.json();
     if (data.files && data.files.length > 0) {
+      // If there are duplicate files, delete the older ones to keep exactly one file
+      if (data.files.length > 1) {
+        for (let i = 1; i < data.files.length; i++) {
+          fetch(`https://www.googleapis.com/drive/v3/files/${data.files[i].id}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+          }).catch(() => {});
+        }
+      }
       return data.files[0].id;
     }
     return null;
@@ -268,12 +302,18 @@ export const googleDriveService = {
   },
 
   /**
-   * Save entire recipe database to Google Drive
+   * Save entire recipe database to Google Drive (using clean uploadType=media)
    */
   async uploadToDrive(token?: string): Promise<void> {
-    const activeToken = token || this.getAccessToken();
+    let activeToken = token || this.getAccessToken();
     if (!activeToken) {
-      throw new Error('No hay sesión activa con Google Drive.');
+      // Try logging in to refresh token if user previously connected
+      if (this.isConnected()) {
+        const loginRes = await this.login();
+        activeToken = loginRes.token;
+      } else {
+        throw new Error('No hay sesión activa con Google Drive.');
+      }
     }
 
     const recipes = await db.recipes.toArray();
@@ -287,40 +327,41 @@ export const googleDriveService = {
     };
 
     const folderId = await this.getOrCreateFolder(activeToken);
-    const existingFileId = await this.findDatabaseFile(activeToken, folderId);
+    let existingFileId = await this.findDatabaseFile(activeToken, folderId);
 
-    const boundary = '-------314159265358979323846';
-    const delimiter = `\r\n--${boundary}\r\n`;
-    const closeDelimiter = `\r\n--${boundary}--`;
+    if (!existingFileId) {
+      // Step 1: Create file in folder
+      const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${activeToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: DRIVE_FILE_NAME,
+          mimeType: 'application/json',
+          parents: [folderId],
+        }),
+      });
 
-    const metadata = {
-      name: DRIVE_FILE_NAME,
-      mimeType: 'application/json',
-      parents: existingFileId ? undefined : [folderId],
-    };
+      if (!createRes.ok) {
+        const errData = await createRes.json().catch(() => ({}));
+        throw new Error(errData?.error?.message || 'Error al crear archivo en Google Drive');
+      }
 
-    const multipartRequestBody =
-      delimiter +
-      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-      JSON.stringify(metadata) +
-      delimiter +
-      'Content-Type: application/json\r\n\r\n' +
-      JSON.stringify(payload) +
-      closeDelimiter;
+      const fileData = await createRes.json();
+      existingFileId = fileData.id;
+    }
 
-    const url = existingFileId
-      ? `https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=multipart`
-      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-
-    const method = existingFileId ? 'PATCH' : 'POST';
-
-    const res = await fetch(url, {
-      method,
+    // Step 2: Upload or update content directly using uploadType=media (bulletproof, zero boundary bugs)
+    const updateUrl = `https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=media`;
+    const res = await fetch(updateUrl, {
+      method: 'PATCH',
       headers: {
         Authorization: `Bearer ${activeToken}`,
-        'Content-Type': `multipart/related; boundary=${boundary}`,
+        'Content-Type': 'application/json; charset=UTF-8',
       },
-      body: multipartRequestBody,
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
@@ -333,7 +374,7 @@ export const googleDriveService = {
 
   /**
    * Synchronize local IndexedDB with Google Drive
-   * (Bidirectional smart merge: merges new and updated recipes by timestamp and content)
+   * (Bidirectional smart merge: merges new and updated recipes, photos, and categories)
    */
   async sync(): Promise<{ imported: number; updated: number; uploaded: boolean }> {
     let token = this.getAccessToken();
@@ -362,30 +403,50 @@ export const googleDriveService = {
           localMapByName.set(driveRecipe.name.trim().toLowerCase(), driveRecipe);
           importedCount++;
         } else {
-          // Recipe exists both locally and on Drive: compare which has newer changes or photos
+          // Recipe exists both locally and on Drive
+          const driveHasRealPhoto = isRealUserPhoto(driveRecipe.mainPhoto);
+          const localHasRealPhoto = isRealUserPhoto(localMatch.mainPhoto);
+
           const driveTime = driveRecipe.updatedAt ? new Date(driveRecipe.updatedAt).getTime() : 0;
           const localTime = localMatch.updatedAt ? new Date(localMatch.updatedAt).getTime() : 0;
 
-          const driveHasPhoto = !!driveRecipe.mainPhoto && driveRecipe.mainPhoto.length > 50;
-          const localHasPhoto = !!localMatch.mainPhoto && localMatch.mainPhoto.length > 50;
+          let chosenPhoto = localMatch.mainPhoto;
+          let photoChanged = false;
 
-          // Drive is newer OR Drive has a photo that local is missing
-          const shouldUpdateLocal = (driveTime > localTime) || (driveHasPhoto && !localHasPhoto);
+          if (driveHasRealPhoto && !localHasRealPhoto) {
+            // Drive has a real user photo and local only had SVG or empty -> Drive photo wins!
+            chosenPhoto = driveRecipe.mainPhoto;
+            photoChanged = true;
+          } else if (!driveHasRealPhoto && localHasRealPhoto) {
+            // Local has real photo and Drive doesn't -> Keep local photo
+            chosenPhoto = localMatch.mainPhoto;
+          } else if (driveHasRealPhoto && localHasRealPhoto) {
+            // Both have real photos: if different, take Drive photo if Drive is equal or newer
+            if (driveRecipe.mainPhoto !== localMatch.mainPhoto && driveTime >= localTime) {
+              chosenPhoto = driveRecipe.mainPhoto;
+              photoChanged = true;
+            }
+          }
+
+          // Should update local if Drive has newer edits or gave us a better photo
+          const shouldUpdateLocal = (driveTime > localTime) || photoChanged;
 
           if (shouldUpdateLocal) {
             const mergedRecipe: Recipe = {
               ...localMatch,
               ...driveRecipe,
               id: localMatch.id, // Preserve consistent local ID
-              mainPhoto: driveHasPhoto ? driveRecipe.mainPhoto : localMatch.mainPhoto,
-              updatedAt: driveRecipe.updatedAt || new Date().toISOString(),
+              mainPhoto: chosenPhoto,
+              updatedAt: driveTime > localTime
+                ? (driveRecipe.updatedAt || new Date().toISOString())
+                : (localMatch.updatedAt || new Date().toISOString()),
             };
             await db.recipes.put(mergedRecipe);
             localMapById.set(localMatch.id, mergedRecipe);
             localMapByName.set(localMatch.name.trim().toLowerCase(), mergedRecipe);
             updatedCount++;
-          } else if (localHasPhoto && !driveHasPhoto) {
-            // Local has the photo, ensure it will be pushed back to Drive
+          } else if (localHasRealPhoto && !driveHasRealPhoto) {
+            // Ensure local photo is passed to Drive
             driveRecipe.mainPhoto = localMatch.mainPhoto;
           }
         }

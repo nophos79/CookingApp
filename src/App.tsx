@@ -274,7 +274,12 @@ export const App: React.FC = () => {
 
   // 5. Recipe Detail View
   if (selectedRecipe) {
-    const activeRecipe = recipes.find((r) => r.id === selectedRecipe.id) || selectedRecipe;
+    const activeRecipe =
+      recipes.find(
+        (r) =>
+          r.id === selectedRecipe.id ||
+          (r.name && selectedRecipe.name && r.name.trim().toLowerCase() === selectedRecipe.name.trim().toLowerCase())
+      ) || selectedRecipe;
     return (
       <RecipeDetail
         recipe={activeRecipe}

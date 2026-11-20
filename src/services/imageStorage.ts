@@ -32,8 +32,7 @@ export async function processAndCompressImage(
             width = maxWidth;
           } else {
             width = Math.round((width * maxHeight) / height);
-            maxHeight;
-            height = Math.round((img.height * maxWidth) / img.width);
+            height = maxHeight;
           }
         }
 
