@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { X, Sparkles, Key, Check, ShieldCheck, ExternalLink, Cpu, Loader2, AlertCircle } from 'lucide-react';
+import { X, Sparkles, Key, Check, ShieldCheck, ExternalLink, Cpu, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { aiService } from '../../services/ai/aiService';
 import type { AIProviderType, AISettings } from '../../services/ai/aiTypes';
 import { testGeminiApiKey } from '../../services/ai/geminiProvider';
+import { forceAppUpdate } from '../../utils/pwaUpdate';
 
 interface AISettingsModalProps {
   isOpen: boolean;
@@ -218,6 +219,20 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
             >
               {isSaved ? <Check className="w-4 h-4" /> : null}
               <span>{isSaved ? 'Guardado' : 'Guardar Preferencias'}</span>
+            </button>
+          </div>
+
+          {/* Force Cache Refresh Button */}
+          <div className="pt-2 border-t border-neutral-100 flex items-center justify-between text-[11px] text-neutral-400">
+            <span>Versión de la app</span>
+            <button
+              type="button"
+              onClick={() => forceAppUpdate()}
+              className="flex items-center gap-1 text-amber-700 hover:text-amber-900 font-semibold hover:underline"
+              title="Borra la caché del Service Worker y recarga la última versión"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Forzar actualización</span>
             </button>
           </div>
         </form>

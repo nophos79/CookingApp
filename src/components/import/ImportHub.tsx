@@ -17,6 +17,7 @@ import { aiService } from '../../services/ai/aiService';
 import { recognizeTextFromImage, type OCRProgress } from '../../services/ocr/ocrService';
 import { processAndCompressImage } from '../../services/imageStorage';
 import { AISettingsModal } from '../settings/AISettingsModal';
+import { forceAppUpdate } from '../../utils/pwaUpdate';
 
 type ImportTab = 'url' | 'photo' | 'manual';
 
@@ -339,16 +340,25 @@ export const ImportHub: React.FC<ImportHubProps> = ({
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
                   <div className="flex-1 space-y-2">
                     <p>{urlError}</p>
-                    {(urlError.includes('Ajustes') || urlError.includes('clave') || urlError.includes('Gemini')) && (
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      {(urlError.includes('Ajustes') || urlError.includes('clave') || urlError.includes('Gemini')) && (
+                        <button
+                          type="button"
+                          onClick={() => setShowSettingsModal(true)}
+                          className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-xl transition shadow-2xs"
+                        >
+                          <Settings className="w-3.5 h-3.5" />
+                          <span>Abrir Ajustes de Gemini</span>
+                        </button>
+                      )}
                       <button
                         type="button"
-                        onClick={() => setShowSettingsModal(true)}
-                        className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-xl transition shadow-2xs"
+                        onClick={() => forceAppUpdate()}
+                        className="inline-flex items-center gap-1 text-[11px] text-neutral-600 hover:text-neutral-900 bg-white border border-neutral-200 hover:bg-neutral-50 px-2.5 py-1.5 rounded-xl transition"
                       >
-                        <Settings className="w-3.5 h-3.5" />
-                        <span>Abrir Ajustes de Gemini</span>
+                        <span>Recargar última versión</span>
                       </button>
-                    )}
+                    </div>
                   </div>
                 </div>
               )}
