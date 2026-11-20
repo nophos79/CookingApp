@@ -1,4 +1,5 @@
 import type { DriveConfig, DriveSyncData } from './driveTypes';
+import type { Recipe } from '../../types/recipe';
 import { db } from '../../db/database';
 
 const CONFIG_STORAGE_KEY = 'mi_recetario_drive_config';
@@ -332,9 +333,9 @@ export const googleDriveService = {
 
   /**
    * Synchronize local IndexedDB with Google Drive
-   * (Merges both, avoiding duplicates, and writes updated set to both)
+   * (Bidirectional smart merge: merges new and updated recipes by timestamp and content)
    */
-  async sync(): Promise<{ imported: number; uploaded: boolean }> {
+  async sync(): Promise<{ imported: number; updated: number; uploaded: boolean }> {
     let token = this.getAccessToken();
     if (!token) {
       const loginRes = await this.login();
@@ -344,18 +345,49 @@ export const googleDriveService = {
     // 1. Download data from Drive
     const driveData = await this.downloadFromDrive(token);
     let importedCount = 0;
+    let updatedCount = 0;
 
     if (driveData && Array.isArray(driveData.recipes)) {
       const existingRecipes = await db.recipes.toArray();
-      const existingIds = new Set(existingRecipes.map((r) => r.id));
-      const existingNames = new Set(existingRecipes.map((r) => r.name.trim().toLowerCase()));
+      const localMapById = new Map<string, Recipe>(existingRecipes.map((r) => [r.id, r]));
+      const localMapByName = new Map<string, Recipe>(existingRecipes.map((r) => [r.name.trim().toLowerCase(), r]));
 
-      for (const r of driveData.recipes) {
-        if (!existingIds.has(r.id) && !existingNames.has(r.name.trim().toLowerCase())) {
-          await db.recipes.add(r);
-          existingIds.add(r.id);
-          existingNames.add(r.name.trim().toLowerCase());
+      for (const driveRecipe of driveData.recipes) {
+        const localMatch = localMapById.get(driveRecipe.id) || localMapByName.get(driveRecipe.name.trim().toLowerCase());
+
+        if (!localMatch) {
+          // New recipe created on another device -> Add to local DB
+          await db.recipes.add(driveRecipe);
+          localMapById.set(driveRecipe.id, driveRecipe);
+          localMapByName.set(driveRecipe.name.trim().toLowerCase(), driveRecipe);
           importedCount++;
+        } else {
+          // Recipe exists both locally and on Drive: compare which has newer changes or photos
+          const driveTime = driveRecipe.updatedAt ? new Date(driveRecipe.updatedAt).getTime() : 0;
+          const localTime = localMatch.updatedAt ? new Date(localMatch.updatedAt).getTime() : 0;
+
+          const driveHasPhoto = !!driveRecipe.mainPhoto && driveRecipe.mainPhoto.length > 50;
+          const localHasPhoto = !!localMatch.mainPhoto && localMatch.mainPhoto.length > 50;
+
+          // Drive is newer OR Drive has a photo that local is missing
+          const shouldUpdateLocal = (driveTime > localTime) || (driveHasPhoto && !localHasPhoto);
+
+          if (shouldUpdateLocal) {
+            const mergedRecipe: Recipe = {
+              ...localMatch,
+              ...driveRecipe,
+              id: localMatch.id, // Preserve consistent local ID
+              mainPhoto: driveHasPhoto ? driveRecipe.mainPhoto : localMatch.mainPhoto,
+              updatedAt: driveRecipe.updatedAt || new Date().toISOString(),
+            };
+            await db.recipes.put(mergedRecipe);
+            localMapById.set(localMatch.id, mergedRecipe);
+            localMapByName.set(localMatch.name.trim().toLowerCase(), mergedRecipe);
+            updatedCount++;
+          } else if (localHasPhoto && !driveHasPhoto) {
+            // Local has the photo, ensure it will be pushed back to Drive
+            driveRecipe.mainPhoto = localMatch.mainPhoto;
+          }
         }
       }
 
@@ -370,9 +402,9 @@ export const googleDriveService = {
       }
     }
 
-    // 2. Upload combined state back to Drive
+    // 2. Upload combined and up-to-date state back to Drive
     await this.uploadToDrive(token);
 
-    return { imported: importedCount, uploaded: true };
+    return { imported: importedCount, updated: updatedCount, uploaded: true };
   },
 };

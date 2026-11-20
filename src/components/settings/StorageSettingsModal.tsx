@@ -87,10 +87,13 @@ export const StorageSettingsModal: React.FC<StorageSettingsModalProps> = ({
       // Automatically sync on login
       const syncRes = await googleDriveService.sync();
       setLastSyncTime(new Date().toISOString());
-      if (syncRes.imported > 0) {
+      if (syncRes.imported > 0 || syncRes.updated > 0) {
+        const parts: string[] = [];
+        if (syncRes.imported > 0) parts.push(`${syncRes.imported} nuevas`);
+        if (syncRes.updated > 0) parts.push(`${syncRes.updated} actualizadas`);
         setStatusMessage({
           type: 'success',
-          text: `Sincronizado con Google Drive: ${syncRes.imported} recetas recuperadas.`,
+          text: `Sincronizado con Google Drive: ${parts.join(', ')}.`,
         });
       }
       onSyncComplete?.();
@@ -114,9 +117,14 @@ export const StorageSettingsModal: React.FC<StorageSettingsModalProps> = ({
     try {
       const syncRes = await googleDriveService.sync();
       setLastSyncTime(new Date().toISOString());
+      const parts: string[] = [];
+      if (syncRes.imported > 0) parts.push(`${syncRes.imported} nuevas`);
+      if (syncRes.updated > 0) parts.push(`${syncRes.updated} actualizadas/con fotos`);
+      const details = parts.length > 0 ? ` (${parts.join(', ')})` : ' (todo al día)';
+
       setStatusMessage({
         type: 'success',
-        text: `Sincronización completa con Google Drive (${syncRes.imported} recetas nuevas fusionadas).`,
+        text: `Sincronización completa con Google Drive${details}.`,
       });
       onSyncComplete?.();
     } catch (err: any) {

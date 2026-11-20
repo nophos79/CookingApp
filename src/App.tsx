@@ -79,6 +79,29 @@ export const App: React.FC = () => {
       });
   }, []);
 
+  // Auto-sync on visibility change (e.g. switching back to tab or unlocking mobile phone)
+  useEffect(() => {
+    let lastVisibilitySync = 0;
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const now = Date.now();
+        // Throttle to at most once every 30 seconds
+        if (now - lastVisibilitySync > 30000) {
+          lastVisibilitySync = now;
+          const cfg = googleDriveService.getConfig();
+          if (cfg.storageMode !== 'local-only' && googleDriveService.isConnected()) {
+            googleDriveService.sync().catch((err) => console.warn('Sync al volver a la app falló:', err));
+          }
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
   // Reactive queries from IndexedDB using Dexie
   const recipes = useLiveQuery(() => db.recipes.toArray(), [], []) as Recipe[];
   const categories = useLiveQuery(() => db.categories.orderBy('order').toArray(), [], []) as Category[];
@@ -251,9 +274,10 @@ export const App: React.FC = () => {
 
   // 5. Recipe Detail View
   if (selectedRecipe) {
+    const activeRecipe = recipes.find((r) => r.id === selectedRecipe.id) || selectedRecipe;
     return (
       <RecipeDetail
-        recipe={selectedRecipe}
+        recipe={activeRecipe}
         categories={categories}
         onBack={() => setSelectedRecipe(null)}
         onEdit={(r) => setEditingRecipe(r)}
