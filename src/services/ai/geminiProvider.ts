@@ -178,22 +178,26 @@ export async function extractWithGemini(
   // Step 1: Web Research with Google Search Grounding to find actual video recipe
   if (hasOriginUrl && !hasText) {
     try {
-      const searchPrompt = `Investiga a fondo este vídeo de cocina de YouTube / Shorts:
-URL: ${context?.originUrl}
-${context?.title ? `Título del vídeo: "${context.title}"` : ''}
+      const ytIdMatch = context?.originUrl?.match(/(?:youtu\.be\/|watch\?v=|shorts\/)([\w-]{11})/);
+      const ytId = ytIdMatch ? ytIdMatch[1] : '';
+
+      const searchPrompt = `Busca e investiga en Google sobre este vídeo de cocina de YouTube / Shorts:
+URL directa: ${context?.originUrl}
+${ytId ? `ID de vídeo: "${ytId}" | Enlace canónico: https://www.youtube.com/watch?v=${ytId}` : ''}
 ${context?.author ? `Canal / Creador: "${context.author}"` : ''}
+${context?.title ? `Título original del vídeo: "${context.title}"` : ''}
 
-IMPORTANTE: El título del vídeo puede ser llamativo o de clickbait (ej: "esta receta te quita el hambre por poco dinero").
-Averigua y detalla:
-1. El NOMBRE CULINARIO REAL Y TRADICIONAL del plato preparado en el vídeo (por ejemplo: "Panizas de Cádiz", "Tortilla de patatas", etc.).
-2. Todos los ingredientes exactos que utiliza el autor y sus medidas.
-3. El proceso paso a paso que realiza en la cocina.`;
+IMPORTANTE: El título del vídeo puede contener expresiones de clickbait (como "esta receta te quita el hambre por poco dinero").
+Por favor, averigua en internet y describe con exactitud:
+1. El NOMBRE CULINARIO REAL Y AUTÉNTICO del plato preparado en el vídeo (por ejemplo: Panizas de Cádiz).
+2. Los ingredientes exactos que utiliza el autor y sus proporciones o medidas.
+3. El proceso paso a paso de cocción que se muestra en el vídeo.`;
 
+      // NOTE: Google Search Grounding in REST API must NOT include systemInstruction
+      // or responseMimeType, as that causes HTTP 400 Invalid Argument.
       const searchBody = {
         contents: [{ parts: [{ text: searchPrompt }] }],
-        systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
         tools: [{ google_search: {} }],
-        generationConfig: { temperature: 0.2 },
       };
 
       const searchResponse = await fetch(url, {
@@ -207,16 +211,19 @@ Averigua y detalla:
         const textOutput = json?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (textOutput) {
           try {
-            // If already returned valid JSON, use it directly!
+            // If it already returned JSON, parse and return
             const parsed = parseJsonSafe(textOutput);
             if (Array.isArray(parsed.ingredients) && parsed.ingredients.length > 0) {
               return formatExtractedData(parsed, context, model);
             }
           } catch {
-            // It's rich natural language research from Google Search! Save it for Step 2 structuring
+            // Natural language research from Google Search Grounding!
             researchedContext = textOutput;
           }
         }
+      } else {
+        const errJson = await searchResponse.json().catch(() => ({}));
+        console.warn('Google Search Grounding falló:', searchResponse.status, errJson);
       }
     } catch (err) {
       console.warn('Búsqueda web con Google Search falló, recurriendo a generación directa:', err);
