@@ -149,7 +149,9 @@ export const googleDriveService = {
     });
 
     if (!res.ok) {
-      throw new Error(`Error al buscar carpeta en Drive: ${res.statusText}`);
+      const errData = await res.json().catch(() => ({}));
+      const msg = errData?.error?.message || `Código ${res.status}`;
+      throw new Error(`Error al buscar carpeta en Drive: ${msg}`);
     }
 
     const data = await res.json();
@@ -171,7 +173,9 @@ export const googleDriveService = {
     });
 
     if (!createRes.ok) {
-      throw new Error('Error al crear la carpeta en Google Drive');
+      const errData = await createRes.json().catch(() => ({}));
+      const msg = errData?.error?.message || `Código ${createRes.status}`;
+      throw new Error(`Error al crear la carpeta en Google Drive: ${msg}`);
     }
 
     const newFolder = await createRes.json();
@@ -218,7 +222,9 @@ export const googleDriveService = {
     });
 
     if (!res.ok) {
-      throw new Error(`Error al descargar archivo de Google Drive: ${res.statusText}`);
+      const errData = await res.json().catch(() => ({}));
+      const msg = errData?.error?.message || `Código ${res.status}`;
+      throw new Error(`Error al descargar archivo de Google Drive: ${msg}`);
     }
 
     const data: DriveSyncData = await res.json();
