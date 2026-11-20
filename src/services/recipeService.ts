@@ -7,7 +7,7 @@ export const recipeService = {
   triggerAutoSyncIfEnabled() {
     const cfg = googleDriveService.getConfig();
     if (cfg.storageMode !== 'local-only' && googleDriveService.isConnected()) {
-      googleDriveService.sync().catch((err) => console.warn('Auto-sync a Google Drive falló:', err));
+      googleDriveService.uploadToDrive().catch((err) => console.warn('Auto-sync a Google Drive falló:', err));
     }
   },
 
@@ -56,6 +56,7 @@ export const recipeService = {
 
   // Delete recipe
   async delete(id: string): Promise<void> {
+    googleDriveService.recordDeletedId(id);
     await db.recipes.delete(id);
     this.triggerAutoSyncIfEnabled();
   },

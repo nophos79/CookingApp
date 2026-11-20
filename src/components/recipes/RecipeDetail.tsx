@@ -441,6 +441,7 @@ export const RecipeDetail: React.FC<RecipeDetailProps> = ({
                 onClick={() => {
                   setShowDeleteConfirm(false);
                   onDelete(recipe.id);
+                  onBack();
                 }}
                 className="w-full py-2.5 px-4 rounded-xl bg-red-600 text-sm font-semibold text-white hover:bg-red-700 active:scale-95 transition shadow-sm"
               >

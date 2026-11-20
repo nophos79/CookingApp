@@ -157,9 +157,13 @@ export const App: React.FC = () => {
     if (e) e.stopPropagation();
     try {
       const isFav = await recipeService.toggleFavorite(id);
-      if (selectedRecipe && selectedRecipe.id === id) {
-        setSelectedRecipe((prev) => (prev ? { ...prev, isFavorite: isFav } : null));
-      }
+      setSelectedRecipe((prev) => {
+        if (!prev) return null;
+        if (prev.id === id || (prev.name && id)) {
+          return { ...prev, isFavorite: isFav };
+        }
+        return prev;
+      });
     } catch (err) {
       console.error('Error al cambiar favorito:', err);
     }
@@ -183,8 +187,12 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteRecipe = async (id: string) => {
-    await recipeService.delete(id);
     setSelectedRecipe(null);
+    try {
+      await recipeService.delete(id);
+    } catch (err) {
+      console.error('Error al eliminar receta:', err);
+    }
   };
 
   const handleAddCategory = async (name: string) => {

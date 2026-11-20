@@ -4,6 +4,7 @@ import { db } from '../../db/database';
 
 const CONFIG_STORAGE_KEY = 'mi_recetario_drive_config';
 const TOKEN_STORAGE_KEY = 'mi_recetario_drive_token';
+const DELETED_IDS_STORAGE_KEY = 'mi_recetario_deleted_ids';
 const DRIVE_FILE_NAME = 'mi_recetario_datos.json';
 const DRIVE_FOLDER_NAME = 'Mi Recetario';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file email profile';
@@ -59,6 +60,27 @@ export const googleDriveService = {
   isConnected(): boolean {
     const config = this.getConfig();
     return !!(config.clientId && config.userEmail);
+  },
+
+  getDeletedRecipeIds(): string[] {
+    try {
+      const stored = localStorage.getItem(DELETED_IDS_STORAGE_KEY);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  recordDeletedId(id: string): void {
+    if (!id) return;
+    try {
+      const ids = new Set(this.getDeletedRecipeIds());
+      ids.add(id);
+      const arr = Array.from(ids).slice(-200);
+      localStorage.setItem(DELETED_IDS_STORAGE_KEY, JSON.stringify(arr));
+    } catch (e) {
+      console.warn('Error al guardar ID eliminado:', e);
+    }
   },
 
   /**
@@ -324,6 +346,7 @@ export const googleDriveService = {
       updatedAt: new Date().toISOString(),
       recipes,
       categories,
+      deletedRecipeIds: this.getDeletedRecipeIds(),
     };
 
     const folderId = await this.getOrCreateFolder(activeToken);
@@ -389,11 +412,25 @@ export const googleDriveService = {
     let updatedCount = 0;
 
     if (driveData && Array.isArray(driveData.recipes)) {
+      // 1. Process deletions from Drive so remote deletes propagate locally
+      if (Array.isArray(driveData.deletedRecipeIds) && driveData.deletedRecipeIds.length > 0) {
+        for (const deletedId of driveData.deletedRecipeIds) {
+          this.recordDeletedId(deletedId);
+          await db.recipes.delete(deletedId);
+        }
+      }
+
+      const deletedIds = new Set(this.getDeletedRecipeIds());
       const existingRecipes = await db.recipes.toArray();
       const localMapById = new Map<string, Recipe>(existingRecipes.map((r) => [r.id, r]));
       const localMapByName = new Map<string, Recipe>(existingRecipes.map((r) => [r.name.trim().toLowerCase(), r]));
 
       for (const driveRecipe of driveData.recipes) {
+        // Skip recipes that have been deleted locally or remotely
+        if (deletedIds.has(driveRecipe.id)) {
+          continue;
+        }
+
         const localMatch = localMapById.get(driveRecipe.id) || localMapByName.get(driveRecipe.name.trim().toLowerCase());
 
         if (!localMatch) {

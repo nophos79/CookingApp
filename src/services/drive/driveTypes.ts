@@ -12,4 +12,5 @@ export interface DriveSyncData {
   updatedAt: string;
   recipes: any[];
   categories: any[];
+  deletedRecipeIds?: string[];
 }
