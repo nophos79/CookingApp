@@ -3,7 +3,7 @@ import type { ExtractedRecipeData } from './aiTypes';
 const SYSTEM_INSTRUCTION = `Eres un chef profesional y asistente gastronómico de alta precisión. Tu tarea es estructurar o formular una receta de cocina completa, realista y detallada en español, lista para ser cocinada en casa.
 
 REGLAS OBLIGATORIAS:
-1. Si tienes una URL de un vídeo de YouTube o receta web, utiliza los ingredientes y pasos que explica el autor o corresponden al plato indicado.
+1. Si tienes una URL de un vídeo de YouTube (incluyendo Shorts) o receta web, investiga o formula los ingredientes y pasos que explica el autor o corresponden al plato indicado.
 2. Si solo dispones del título del plato o enlace sin transcripción, DEBES GENERAR OBLIGATORIAMENTE la lista completa de ingredientes con sus cantidades exactas (ej: 500, 2, 1/2) y unidades de medida (ej: g, ml, cda, ud), así como los pasos ordenados de preparación para 4 comensales.
 3. NUNCA, BAJO NINGÚN CONCEPTO, devuelvas un array de ingredientes vacío ("ingredients": []) ni un array de pasos vacío ("steps": []). Cada receta DEBE incluir siempre sus ingredientes cuantificados y sus pasos.
 4. Devuelve SIEMPRE única y exclusivamente un objeto JSON válido con la siguiente estructura:
@@ -54,6 +54,23 @@ function parseJsonSafe(text: string): any {
   }
 }
 
+const FALLBACK_CHAIN = [
+  'gemini-2.0-flash',
+  'gemini-1.5-flash-latest',
+  'gemini-1.5-flash',
+  'gemini-3.8-flash',
+  'gemini-2.0-flash-exp',
+  'gemini-1.5-pro',
+];
+
+function getNextFallbackModel(currentModel: string): string {
+  const idx = FALLBACK_CHAIN.indexOf(currentModel);
+  if (idx !== -1 && idx + 1 < FALLBACK_CHAIN.length) {
+    return FALLBACK_CHAIN[idx + 1];
+  }
+  return currentModel !== 'gemini-2.0-flash' ? 'gemini-2.0-flash' : 'gemini-1.5-flash';
+}
+
 let cachedModelName: string | null = null;
 
 export async function getBestGeminiModel(apiKey: string): Promise<string> {
@@ -66,48 +83,26 @@ export async function getBestGeminiModel(apiKey: string): Promise<string> {
       const availableModels: string[] = (data.models || [])
         .filter((m: any) => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
         .map((m: any) => m.name.replace(/^models\//, ''))
-        // Exclude deprecated models that reject new users
-        .filter((name: string) => !name.includes('2.5-flash'));
+        .filter((name: string) => !name.includes('2.5-flash')); // Exclude deprecated 2.5-flash
 
-      // Priority list: modern models first
-      const preferred = [
-        'gemini-3.8-flash',
-        'gemini-3-flash',
-        'gemini-2.0-flash',
-        'gemini-2.0-flash-exp',
-        'gemini-1.5-flash-latest',
-        'gemini-1.5-flash',
-        'gemini-1.5-flash-002',
-        'gemini-1.5-pro',
-        'gemini-pro',
-      ];
-
-      for (const pref of preferred) {
+      for (const pref of FALLBACK_CHAIN) {
         if (availableModels.includes(pref)) {
           cachedModelName = pref;
           return pref;
         }
       }
 
-      // If no exact match, pick any non-2.5 flash model
       const anyFlash = availableModels.find((m) => m.toLowerCase().includes('flash'));
       if (anyFlash) {
         cachedModelName = anyFlash;
         return anyFlash;
       }
-
-      const anyGemini = availableModels.find((m) => m.toLowerCase().includes('gemini'));
-      if (anyGemini) {
-        cachedModelName = anyGemini;
-        return anyGemini;
-      }
     }
   } catch (e) {
-    console.warn('No se pudo listar modelos desde Google, probando gemini-3.8-flash:', e);
+    console.warn('No se pudo listar modelos desde Google, probando gemini-2.0-flash:', e);
   }
 
-  // Modern default fallback
-  cachedModelName = 'gemini-3.8-flash';
+  cachedModelName = 'gemini-2.0-flash';
   return cachedModelName;
 }
 
@@ -127,11 +122,20 @@ export async function testGeminiApiKey(apiKey: string): Promise<string> {
     const errData = await response.json().catch(() => ({}));
     const errorMsg = errData?.error?.message || '';
 
-    // If Google tells us to use a specific model (e.g. models/gemini-3.8-flash), auto-switch!
+    // If Google recommends a specific model, switch to it
     const suggested = errorMsg.match(/models\/([a-zA-Z0-9.-]+)/);
     if (suggested && suggested[1] !== model) {
       cachedModelName = suggested[1];
       return testGeminiApiKey(apiKey);
+    }
+
+    // If high demand / rate limit, switch to next fallback
+    if (response.status === 429 || response.status === 503 || errorMsg.includes('high demand') || errorMsg.includes('RESOURCE_EXHAUSTED')) {
+      const fallback = getNextFallbackModel(model);
+      if (fallback !== model) {
+        cachedModelName = fallback;
+        return testGeminiApiKey(apiKey);
+      }
     }
 
     throw new Error(errorMsg || `Error HTTP ${response.status}`);
@@ -143,9 +147,16 @@ export async function testGeminiApiKey(apiKey: string): Promise<string> {
 export async function extractWithGemini(
   rawText: string,
   apiKey: string,
-  context?: { title?: string; originUrl?: string; author?: string; generateFromTitleIfEmpty?: boolean }
+  context?: { title?: string; originUrl?: string; author?: string; generateFromTitleIfEmpty?: boolean },
+  attemptedModels: string[] = []
 ): Promise<ExtractedRecipeData> {
-  const model = await getBestGeminiModel(apiKey);
+  let model = await getBestGeminiModel(apiKey);
+  if (attemptedModels.includes(model)) {
+    model = getNextFallbackModel(model);
+    cachedModelName = model;
+  }
+  const currentAttempts = [...attemptedModels, model];
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const hasOriginUrl = !!context?.originUrl && context.originUrl.startsWith('http');
@@ -238,12 +249,28 @@ Extrae o genera todos los ingredientes necesarios con cantidades y unidades, y l
     const errorData = await directResponse.json().catch(() => ({}));
     const errorMsg = errorData?.error?.message || '';
 
-    // If Google recommends a specific model (e.g. "use models/gemini-3.8-flash"), auto-switch and retry immediately!
+    // If Google recommends a specific model, switch to it and retry
     const suggestedMatch = errorMsg.match(/models\/([a-zA-Z0-9.-]+)/);
-    if (suggestedMatch && suggestedMatch[1] !== model) {
+    if (suggestedMatch && suggestedMatch[1] !== model && !currentAttempts.includes(suggestedMatch[1])) {
       console.log(`Cambiando automáticamente al modelo recomendado por Google: ${suggestedMatch[1]}`);
       cachedModelName = suggestedMatch[1];
-      return extractWithGemini(rawText, apiKey, context);
+      return extractWithGemini(rawText, apiKey, context, currentAttempts);
+    }
+
+    // If high demand (429, 503, spikes in demand), cascade to the next model in the pool!
+    if (
+      directResponse.status === 429 ||
+      directResponse.status === 503 ||
+      errorMsg.includes('high demand') ||
+      errorMsg.includes('RESOURCE_EXHAUSTED') ||
+      errorMsg.includes('Overloaded')
+    ) {
+      const fallbackModel = getNextFallbackModel(model);
+      if (fallbackModel && !currentAttempts.includes(fallbackModel)) {
+        console.warn(`Modelo ${model} con alta demanda, recurriendo a ${fallbackModel}...`);
+        cachedModelName = fallbackModel;
+        return extractWithGemini(rawText, apiKey, context, currentAttempts);
+      }
     }
 
     throw new Error(
