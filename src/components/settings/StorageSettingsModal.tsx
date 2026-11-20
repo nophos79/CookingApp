@@ -78,6 +78,12 @@ export const StorageSettingsModal: React.FC<StorageSettingsModalProps> = ({
       setUserEmail(res.email);
       setStatusMessage({ type: 'success', text: `Conectado exitosamente como ${res.email}` });
 
+      // If user was in local-only mode, automatically activate hybrid mode
+      if (storageMode === 'local-only') {
+        setStorageMode('hybrid');
+        googleDriveService.saveConfig({ storageMode: 'hybrid' });
+      }
+
       // Automatically sync on login
       const syncRes = await googleDriveService.sync();
       setLastSyncTime(new Date().toISOString());

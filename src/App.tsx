@@ -16,6 +16,7 @@ import { AISettingsModal } from './components/settings/AISettingsModal';
 import { PwaInstallPrompt } from './components/pwa/PwaInstallPrompt';
 import { BackupModal } from './components/backup/BackupModal';
 import { StorageSettingsModal } from './components/settings/StorageSettingsModal';
+import { googleDriveService } from './services/drive/googleDriveService';
 
 export const App: React.FC = () => {
   // Navigation & View State
@@ -64,7 +65,14 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     initializeDatabaseIfEmpty()
-      .then(() => setIsDbReady(true))
+      .then(() => {
+        setIsDbReady(true);
+        // If Google Drive is active, background sync on startup to pull changes from other devices
+        const cfg = googleDriveService.getConfig();
+        if (cfg.storageMode !== 'local-only' && googleDriveService.isConnected()) {
+          googleDriveService.sync().catch((err) => console.warn('Sync de arranque falló:', err));
+        }
+      })
       .catch((err) => {
         console.error('Error al inicializar la base de datos:', err);
         setIsDbReady(true);
