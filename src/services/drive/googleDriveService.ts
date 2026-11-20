@@ -2,6 +2,7 @@ import type { DriveConfig, DriveSyncData } from './driveTypes';
 import { db } from '../../db/database';
 
 const CONFIG_STORAGE_KEY = 'mi_recetario_drive_config';
+const TOKEN_STORAGE_KEY = 'mi_recetario_drive_token';
 const DRIVE_FILE_NAME = 'mi_recetario_datos.json';
 const DRIVE_FOLDER_NAME = 'Mi Recetario';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file email profile';
@@ -39,14 +40,44 @@ export const googleDriveService = {
   },
 
   isConnected(): boolean {
-    return !!cachedAccessToken && Date.now() < tokenExpiresAt;
+    return !!this.getAccessToken();
   },
 
   getAccessToken(): string | null {
-    if (this.isConnected()) {
+    // 1. Check in-memory token
+    if (cachedAccessToken && Date.now() < tokenExpiresAt) {
       return cachedAccessToken;
     }
+
+    // 2. Rehydrate from localStorage across reloads
+    try {
+      const stored = localStorage.getItem(TOKEN_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.token && parsed.expiresAt && Date.now() < parsed.expiresAt) {
+          cachedAccessToken = parsed.token;
+          tokenExpiresAt = parsed.expiresAt;
+          return cachedAccessToken;
+        }
+      }
+    } catch (e) {
+      console.warn('Error al leer token persistido de Google Drive:', e);
+    }
+
     return null;
+  },
+
+  saveToken(token: string, expiresInSeconds: number): void {
+    cachedAccessToken = token;
+    tokenExpiresAt = Date.now() + expiresInSeconds * 1000;
+    try {
+      localStorage.setItem(
+        TOKEN_STORAGE_KEY,
+        JSON.stringify({ token, expiresAt: tokenExpiresAt })
+      );
+    } catch (e) {
+      console.warn('No se pudo guardar el token en localStorage:', e);
+    }
   },
 
   /**
@@ -97,16 +128,14 @@ export const googleDriveService = {
               return;
             }
 
-            cachedAccessToken = response.access_token;
-            // Token is typically valid for 3500 seconds (~1 hour)
             const expiresIn = Number(response.expires_in) || 3500;
-            tokenExpiresAt = Date.now() + expiresIn * 1000;
+            this.saveToken(response.access_token, expiresIn);
 
             // Fetch user email
             let email = '';
             try {
               const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-                headers: { Authorization: `Bearer ${cachedAccessToken}` },
+                headers: { Authorization: `Bearer ${response.access_token}` },
               });
               if (userRes.ok) {
                 const userData = await userRes.json();
@@ -121,7 +150,8 @@ export const googleDriveService = {
           },
         });
 
-        client.requestAccessToken();
+        // Use prompt: '' so if already consented, Google authorizes silently or smoothly
+        client.requestAccessToken({ prompt: '' });
       } catch (err: any) {
         reject(err);
       }
@@ -129,11 +159,15 @@ export const googleDriveService = {
   },
 
   logout(): void {
-    if (cachedAccessToken && window.google?.accounts?.oauth2?.revoke) {
-      window.google.accounts.oauth2.revoke(cachedAccessToken, () => {});
+    const token = this.getAccessToken();
+    if (token && window.google?.accounts?.oauth2?.revoke) {
+      window.google.accounts.oauth2.revoke(token, () => {});
     }
     cachedAccessToken = null;
     tokenExpiresAt = 0;
+    try {
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+    } catch {}
     this.saveConfig({ userEmail: undefined });
   },
 
