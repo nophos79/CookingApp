@@ -128,10 +128,10 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
               <div className="flex-1">
                 <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm text-neutral-900">
                   <Sparkles className="w-4 h-4 text-amber-600" />
-                  <span>Google Gemini 1.5 Flash (Recomendado)</span>
+                  <span>Google Gemini AI (Recomendado)</span>
                 </div>
                 <p className="text-[11px] text-neutral-500 mt-0.5">
-                  Estructuración inteligente y extracción automática de ingredientes y pasos a partir de enlaces de YouTube o recetas web.
+                  Autoselecciona la mejor versión disponible para tu cuenta (Gemini 2.0 / Flash). Estructuración inteligente y extracción de ingredientes a partir de enlaces.
                 </p>
               </div>
             </label>
