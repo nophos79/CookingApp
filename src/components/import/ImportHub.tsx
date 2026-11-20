@@ -149,7 +149,10 @@ export const ImportHub: React.FC<ImportHubProps> = ({
         personalNotes: structured.personalNotes || (!hasText ? 'Receta formulada e investigada automáticamente con IA a partir del enlace. Revisa las cantidades y pasos a tu gusto.' : undefined),
       });
     } catch (err: any) {
-      setUrlError('Error al estructurar receta con el asistente: ' + (err.message || 'error desconocido'));
+      const msg = err.name === 'TimeoutError' || (err.message && (err.message.includes('aborted') || err.message.includes('timeout')))
+        ? 'El servidor de Gemini tardó demasiado en responder (tiempo límite alcanzado). Vuelve a pulsar Extraer o cambia de modelo en Ajustes.'
+        : (err.message || 'error desconocido');
+      setUrlError('Error al estructurar receta con el asistente: ' + msg);
     } finally {
       setIsExtracting(false);
     }

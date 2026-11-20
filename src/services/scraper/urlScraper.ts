@@ -10,32 +10,51 @@ export interface ScrapedUrlMetadata {
   videoId?: string;
 }
 
-// Convert an external image URL to Base64 via Canvas to preserve it permanently offline
-export async function downloadImageAsBase64(url: string): Promise<string | undefined> {
-  try {
-    return await new Promise<string>((resolve, reject) => {
+// Convert an external image URL to Base64 via Canvas with a strict timeout to avoid blocking
+export async function downloadImageAsBase64(url: string, timeoutMs = 2500): Promise<string | undefined> {
+  return new Promise<string | undefined>((resolve) => {
+    let resolved = false;
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        resolve(undefined);
+      }
+    }, timeoutMs);
+
+    try {
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timer);
         try {
           const canvas = document.createElement('canvas');
           canvas.width = img.width;
           canvas.height = img.height;
           const ctx = canvas.getContext('2d');
-          if (!ctx) return reject(new Error('Canvas context no disponible'));
+          if (!ctx) return resolve(undefined);
           ctx.drawImage(img, 0, 0);
           resolve(canvas.toDataURL('image/jpeg', 0.85));
-        } catch (e) {
-          reject(e);
+        } catch {
+          resolve(undefined);
         }
       };
-      img.onerror = () => reject(new Error('No se pudo cargar la imagen remota'));
+      img.onerror = () => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timer);
+        resolve(undefined);
+      };
       img.src = url;
-    });
-  } catch (err) {
-    console.warn('No se pudo convertir la miniatura a Base64 directamente (CORS):', err);
-    return undefined;
-  }
+    } catch {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        resolve(undefined);
+      }
+    }
+  });
 }
 
 export function detectPlatform(url: string): OriginType {
@@ -79,7 +98,7 @@ export async function scrapeUrlMetadata(inputUrl: string): Promise<ScrapedUrlMet
       // 1. Try noembed.com first because it supports CORS (Access-Control-Allow-Origin: *) in all browsers
       try {
         const noembedUrl = `https://noembed.com/embed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}`;
-        const res = await fetch(noembedUrl);
+        const res = await fetch(noembedUrl, { signal: AbortSignal.timeout(3000) });
         if (res.ok) {
           const data = await res.json();
           if (data && data.title && !data.error) {
@@ -88,21 +107,21 @@ export async function scrapeUrlMetadata(inputUrl: string): Promise<ScrapedUrlMet
           }
         }
       } catch (e) {
-        console.warn('noembed falló, probando oembed directo:', e);
+        console.warn('noembed falló o agotó tiempo de espera, probando oembed directo:', e);
       }
 
       // 2. Fallback to direct YouTube oembed
       if (!result.title) {
         try {
           const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
-          const res = await fetch(oembedUrl);
+          const res = await fetch(oembedUrl, { signal: AbortSignal.timeout(3000) });
           if (res.ok) {
             const data = await res.json();
             result.title = data.title;
             result.author = data.author_name;
           }
         } catch (err) {
-          console.warn('oEmbed directo de YouTube no disponible (CORS):', err);
+          console.warn('oEmbed directo de YouTube no disponible (CORS/timeout):', err);
         }
       }
     }
