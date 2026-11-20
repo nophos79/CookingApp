@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X, Sparkles, Key, Check, ShieldCheck, ExternalLink, Cpu, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { aiService } from '../../services/ai/aiService';
 import type { AIProviderType, AISettings } from '../../services/ai/aiTypes';
-import { testGeminiApiKey, getActiveGeminiModel } from '../../services/ai/geminiProvider';
+import { testGeminiApiKey, getActiveGeminiModel, fetchAvailableGeminiModels } from '../../services/ai/geminiProvider';
 import { forceAppUpdate } from '../../utils/pwaUpdate';
 
 interface AISettingsModalProps {
@@ -18,15 +18,32 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
   const [geminiApiKey, setGeminiApiKey] = useState(currentSettings.geminiApiKey || '');
 
   // Model selection state
+  const [availableModelsList, setAvailableModelsList] = useState<string[]>([
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-1.5-pro',
+  ]);
   const initialModel = currentSettings.geminiModel || 'auto';
-  const isKnownModel = ['auto', 'gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-3.8-flash'].includes(initialModel);
-  const [geminiModel, setGeminiModel] = useState<string>(isKnownModel ? initialModel : 'custom');
-  const [customModel, setCustomModel] = useState<string>(isKnownModel ? '' : initialModel);
+  const [geminiModel, setGeminiModel] = useState<string>(initialModel);
+  const [customModel, setCustomModel] = useState<string>(
+    ['auto', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro'].includes(initialModel) ? '' : initialModel
+  );
   const [activeModelName, setActiveModelName] = useState<string>(getActiveGeminiModel());
 
   const [isSaved, setIsSaved] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  // Discover actual available models for this user's API key
+  React.useEffect(() => {
+    if (geminiApiKey.trim()) {
+      fetchAvailableGeminiModels(geminiApiKey.trim()).then((models) => {
+        if (models && models.length > 0) {
+          setAvailableModelsList(models);
+        }
+      });
+    }
+  }, [geminiApiKey]);
 
   if (!isOpen) return null;
 
@@ -41,7 +58,13 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
       const selectedOrCustom = geminiModel === 'custom' ? (customModel.trim() || 'gemini-2.0-flash') : geminiModel;
       const verifiedModel = await testGeminiApiKey(geminiApiKey.trim(), selectedOrCustom);
       setActiveModelName(verifiedModel);
-      setTestResult({ ok: true, message: `¡Conexión verificada con éxito! (Modelo activo: ${verifiedModel})` });
+
+      const liveModels = await fetchAvailableGeminiModels(geminiApiKey.trim());
+      if (liveModels && liveModels.length > 0) {
+        setAvailableModelsList(liveModels);
+      }
+
+      setTestResult({ ok: true, message: `¡Conexión verificada con éxito con ${verifiedModel}!` });
       setProvider('gemini');
     } catch (err: any) {
       setTestResult({ ok: false, message: 'Error de validación: ' + (err.message || 'clave inválida') });
@@ -215,11 +238,18 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                   }}
                   className="w-full px-3 py-2 text-xs bg-white rounded-xl border border-neutral-300 focus:border-amber-500 outline-hidden font-medium text-neutral-800"
                 >
-                  <option value="auto">Automático (Recomendado - Auto-conmutación si hay saturación)</option>
-                  <option value="gemini-2.0-flash">Gemini 2.0 Flash (Alta capacidad y estabilidad)</option>
-                  <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash Latest</option>
-                  <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                  <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+                  <option value="auto">Automático (Recomendado - Selección óptima y sin cortes)</option>
+                  {availableModelsList.map((m) => (
+                    <option key={m} value={m}>
+                      {m === 'gemini-2.0-flash'
+                        ? 'Gemini 2.0 Flash (Recomendado, gran velocidad)'
+                        : m === 'gemini-2.0-flash-lite'
+                        ? 'Gemini 2.0 Flash-Lite (Ultrarrápido, inmune a saturación)'
+                        : m === 'gemini-1.5-pro'
+                        ? 'Gemini 1.5 Pro (Alta capacidad analítica)'
+                        : m}
+                    </option>
+                  ))}
                   <option value="custom">Otro modelo personalizado...</option>
                 </select>
 

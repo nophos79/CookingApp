@@ -56,63 +56,91 @@ function parseJsonSafe(text: string): any {
 
 const FALLBACK_CHAIN = [
   'gemini-2.0-flash',
-  'gemini-1.5-flash-latest',
-  'gemini-1.5-flash',
-  'gemini-3.8-flash',
-  'gemini-2.0-flash-exp',
+  'gemini-2.0-flash-lite',
   'gemini-1.5-pro',
 ];
 
-function getNextFallbackModel(currentModel: string): string {
-  const idx = FALLBACK_CHAIN.indexOf(currentModel);
-  if (idx !== -1 && idx + 1 < FALLBACK_CHAIN.length) {
-    return FALLBACK_CHAIN[idx + 1];
-  }
-  return currentModel !== 'gemini-2.0-flash' ? 'gemini-2.0-flash' : 'gemini-1.5-flash';
-}
+const blacklistedModels = new Set<string>([
+  'gemini-2.0-flash-exp',
+  'gemini-2.5-flash',
+  'gemini-3.8-flash',
+]);
 
 let cachedModelName: string | null = null;
+let discoveredModelsCache: string[] | null = null;
 
 export function getActiveGeminiModel(): string {
   return cachedModelName || 'gemini-2.0-flash';
 }
 
-export async function getBestGeminiModel(apiKey: string, forcedModel?: string): Promise<string> {
-  if (forcedModel && forcedModel !== 'auto') {
-    cachedModelName = forcedModel;
-    return forcedModel;
-  }
-  if (cachedModelName) return cachedModelName;
+export async function fetchAvailableGeminiModels(apiKey: string): Promise<string[]> {
+  if (!apiKey || !apiKey.trim()) return FALLBACK_CHAIN;
+  if (discoveredModelsCache && discoveredModelsCache.length > 0) return discoveredModelsCache;
 
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey.trim()}`, {
       signal: AbortSignal.timeout(5000),
     });
     if (res.ok) {
       const data = await res.json();
-      const availableModels: string[] = (data.models || [])
+      const models: string[] = (data.models || [])
         .filter((m: any) => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
         .map((m: any) => m.name.replace(/^models\//, ''))
-        .filter((name: string) => !name.includes('2.5-flash')); // Exclude deprecated 2.5-flash
+        .filter((name: string) => !blacklistedModels.has(name) && !name.includes('exp'));
 
-      for (const pref of FALLBACK_CHAIN) {
-        if (availableModels.includes(pref)) {
-          cachedModelName = pref;
-          return pref;
-        }
-      }
+      // Sort with gemini-2.0-flash and flash-lite first
+      models.sort((a, b) => {
+        if (a === 'gemini-2.0-flash') return -1;
+        if (b === 'gemini-2.0-flash') return 1;
+        if (a.includes('flash-lite')) return -1;
+        if (b.includes('flash-lite')) return 1;
+        return a.localeCompare(b);
+      });
 
-      const anyFlash = availableModels.find((m) => m.toLowerCase().includes('flash'));
-      if (anyFlash) {
-        cachedModelName = anyFlash;
-        return anyFlash;
+      if (models.length > 0) {
+        discoveredModelsCache = models;
+        return models;
       }
     }
   } catch (e) {
-    console.warn('No se pudo listar modelos desde Google, probando gemini-2.0-flash:', e);
+    console.warn('No se pudo consultar ListModels de Google:', e);
   }
 
-  cachedModelName = 'gemini-2.0-flash';
+  return FALLBACK_CHAIN;
+}
+
+function getNextFallbackModel(currentModel: string, availableList?: string[]): string {
+  const pool = (availableList && availableList.length > 0) ? availableList : (discoveredModelsCache || FALLBACK_CHAIN);
+  const valid = pool.filter(m => !blacklistedModels.has(m));
+  const idx = valid.indexOf(currentModel);
+  if (idx !== -1 && idx + 1 < valid.length) {
+    return valid[idx + 1];
+  }
+  const alt = valid.find(m => m !== currentModel);
+  return alt || (currentModel !== 'gemini-2.0-flash' ? 'gemini-2.0-flash' : 'gemini-2.0-flash-lite');
+}
+
+export async function getBestGeminiModel(apiKey: string, forcedModel?: string): Promise<string> {
+  if (forcedModel && forcedModel !== 'auto' && !blacklistedModels.has(forcedModel)) {
+    cachedModelName = forcedModel;
+    return forcedModel;
+  }
+
+  const available = await fetchAvailableGeminiModels(apiKey);
+  for (const pref of FALLBACK_CHAIN) {
+    if (available.includes(pref) && !blacklistedModels.has(pref)) {
+      cachedModelName = pref;
+      return pref;
+    }
+  }
+
+  const anyFlash = available.find((m) => m.toLowerCase().includes('flash') && !blacklistedModels.has(m));
+  if (anyFlash) {
+    cachedModelName = anyFlash;
+    return anyFlash;
+  }
+
+  cachedModelName = available[0] || 'gemini-2.0-flash';
   return cachedModelName;
 }
 
@@ -133,11 +161,18 @@ export async function testGeminiApiKey(apiKey: string, forcedModel?: string): Pr
     const errData = await response.json().catch(() => ({}));
     const errorMsg = errData?.error?.message || '';
 
-    // If Google recommends a specific model, switch to it
-    const suggested = errorMsg.match(/models\/([a-zA-Z0-9.-]+)/);
-    if (suggested && suggested[1] !== model) {
+    if (errorMsg.includes('not found') || errorMsg.includes('not supported')) {
+      blacklistedModels.add(model);
+      if (cachedModelName === model) cachedModelName = null;
+      const next = getNextFallbackModel(model);
+      return testGeminiApiKey(apiKey, next);
+    }
+
+    // Only switch if Google explicitly recommends a model in the error
+    const suggested = errorMsg.match(/(?:Please use|update your code to use)\s+models\/([a-zA-Z0-9.-]+)/i);
+    if (suggested && suggested[1] !== model && !blacklistedModels.has(suggested[1])) {
       cachedModelName = suggested[1];
-      return testGeminiApiKey(apiKey);
+      return testGeminiApiKey(apiKey, suggested[1]);
     }
 
     // If high demand / rate limit, switch to next fallback
@@ -145,13 +180,14 @@ export async function testGeminiApiKey(apiKey: string, forcedModel?: string): Pr
       const fallback = getNextFallbackModel(model);
       if (fallback !== model) {
         cachedModelName = fallback;
-        return testGeminiApiKey(apiKey);
+        return testGeminiApiKey(apiKey, fallback);
       }
     }
 
     throw new Error(errorMsg || `Error HTTP ${response.status}`);
   }
 
+  cachedModelName = model;
   return model;
 }
 
@@ -238,9 +274,21 @@ Extrae o genera todos los ingredientes necesarios con cantidades y unidades, y l
     const errorData = await directResponse.json().catch(() => ({}));
     const errorMsg = errorData?.error?.message || '';
 
-    // If Google recommends a specific model, switch to it and retry (max 1 retry)
-    const suggestedMatch = errorMsg.match(/models\/([a-zA-Z0-9.-]+)/);
-    if (suggestedMatch && suggestedMatch[1] !== model && !currentAttempts.includes(suggestedMatch[1]) && currentAttempts.length < 2) {
+    // If model is not found or deprecated, blacklist it immediately and retry with next valid model
+    if (errorMsg.includes('not found') || errorMsg.includes('not supported')) {
+      blacklistedModels.add(model);
+      if (cachedModelName === model) cachedModelName = null;
+      if (currentAttempts.length < 2) {
+        const nextModel = getNextFallbackModel(model);
+        console.warn(`Modelo ${model} no disponible (${errorMsg}), cambiando a ${nextModel}...`);
+        cachedModelName = nextModel;
+        return extractWithGemini(rawText, apiKey, context, currentAttempts);
+      }
+    }
+
+    // If Google explicitly recommends another model, switch to it and retry (max 1 retry)
+    const suggestedMatch = errorMsg.match(/(?:Please use|update your code to use)\s+models\/([a-zA-Z0-9.-]+)/i);
+    if (suggestedMatch && suggestedMatch[1] !== model && !blacklistedModels.has(suggestedMatch[1]) && !currentAttempts.includes(suggestedMatch[1]) && currentAttempts.length < 2) {
       console.log(`Cambiando automáticamente al modelo recomendado por Google: ${suggestedMatch[1]}`);
       cachedModelName = suggestedMatch[1];
       return extractWithGemini(rawText, apiKey, context, currentAttempts);
