@@ -3,12 +3,12 @@ import type { ExtractedRecipeData } from './aiTypes';
 const SYSTEM_INSTRUCTION = `Eres un chef profesional y asistente gastronómico de alta precisión. Tu tarea es estructurar o formular una receta de cocina completa, realista y detallada en español, lista para ser cocinada en casa.
 
 REGLAS OBLIGATORIAS:
-1. Si tienes una URL de un vídeo de YouTube (incluyendo Shorts) o receta web, investiga o formula los ingredientes y pasos que explica el autor o corresponden al plato indicado.
+1. Si tienes una URL de un vídeo de YouTube (incluyendo Shorts) o receta web, investiga o formula los ingredientes y pasos que explica el autor o corresponden al plato indicado. Identifica siempre el nombre culinario real del plato, evitando títulos de clickbait o publicitarios.
 2. Si solo dispones del título del plato o enlace sin transcripción, DEBES GENERAR OBLIGATORIAMENTE la lista completa de ingredientes con sus cantidades exactas (ej: 500, 2, 1/2) y unidades de medida (ej: g, ml, cda, ud), así como los pasos ordenados de preparación para 4 comensales.
 3. NUNCA, BAJO NINGÚN CONCEPTO, devuelvas un array de ingredientes vacío ("ingredients": []) ni un array de pasos vacío ("steps": []). Cada receta DEBE incluir siempre sus ingredientes cuantificados y sus pasos.
 4. Devuelve SIEMPRE única y exclusivamente un objeto JSON válido con la siguiente estructura:
 {
-  "name": "Nombre de la receta",
+  "name": "Nombre real y culinario de la receta (ej: Panizas de Cádiz)",
   "description": "Breve descripción apetitosa de 1 o 2 frases",
   "categoryId": "Uno de: carnes, pescados-mariscos, arroces, pastas, verduras-hortalizas, legumbres, huevos, sopas-cremas, postres-reposteria, salsas-acompanamientos, otros",
   "subcategory": "Subcategoría opcional si aplica",
@@ -173,16 +173,21 @@ export async function extractWithGemini(
   const hasText = !!rawText && rawText.trim().length > 30 && rawText !== context?.originUrl;
   const recipeTopic = context?.title?.trim() || (rawText && !rawText.startsWith('http') ? rawText.trim() : 'Receta');
 
-  // Attempt 1: If it's a URL without raw text, try Google Search Grounding to find actual video recipe
+  let researchedContext = '';
+
+  // Step 1: Web Research with Google Search Grounding to find actual video recipe
   if (hasOriginUrl && !hasText) {
     try {
-      const searchPrompt = `Investiga y analiza la receta correspondiente a este enlace de vídeo o cocina:
+      const searchPrompt = `Investiga a fondo este vídeo de cocina de YouTube / Shorts:
 URL: ${context?.originUrl}
 ${context?.title ? `Título del vídeo: "${context.title}"` : ''}
-${context?.author ? `Canal / Autor: "${context.author}"` : ''}
+${context?.author ? `Canal / Creador: "${context.author}"` : ''}
 
-Por favor, busca en la web los ingredientes exactos (con cantidades y unidades) y los pasos de elaboración que se preparan en este vídeo.
-Devuelve el resultado en formato JSON estricto con los campos: name, description, categoryId, prepTimeMinutes, cookTimeMinutes, servings, difficulty, tags, ingredients y steps.`;
+IMPORTANTE: El título del vídeo puede ser llamativo o de clickbait (ej: "esta receta te quita el hambre por poco dinero").
+Averigua y detalla:
+1. El NOMBRE CULINARIO REAL Y TRADICIONAL del plato preparado en el vídeo (por ejemplo: "Panizas de Cádiz", "Tortilla de patatas", etc.).
+2. Todos los ingredientes exactos que utiliza el autor y sus medidas.
+3. El proceso paso a paso que realiza en la cocina.`;
 
       const searchBody = {
         contents: [{ parts: [{ text: searchPrompt }] }],
@@ -191,40 +196,54 @@ Devuelve el resultado en formato JSON estricto con los campos: name, description
         generationConfig: { temperature: 0.2 },
       };
 
-      const response = await fetch(url, {
+      const searchResponse = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(searchBody),
       });
 
-      if (response.ok) {
-        const json = await response.json();
+      if (searchResponse.ok) {
+        const json = await searchResponse.json();
         const textOutput = json?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (textOutput) {
-          const parsed = parseJsonSafe(textOutput);
-          if (Array.isArray(parsed.ingredients) && parsed.ingredients.length > 0) {
-            return formatExtractedData(parsed, context, model);
+          try {
+            // If already returned valid JSON, use it directly!
+            const parsed = parseJsonSafe(textOutput);
+            if (Array.isArray(parsed.ingredients) && parsed.ingredients.length > 0) {
+              return formatExtractedData(parsed, context, model);
+            }
+          } catch {
+            // It's rich natural language research from Google Search! Save it for Step 2 structuring
+            researchedContext = textOutput;
           }
         }
       }
     } catch (err) {
-      console.warn('Búsqueda con Google Search falló o no dio ingredientes, recurriendo a generación directa:', err);
+      console.warn('Búsqueda web con Google Search falló, recurriendo a generación directa:', err);
     }
   }
 
-  // Attempt 2: Direct High-Quality Recipe Generation / Extraction in JSON Mode
+  // Step 2: High-Precision Structured JSON Generation
   let directPrompt = '';
-  if (hasOriginUrl && !hasText) {
+  if (researchedContext) {
+    directPrompt = `A partir de la siguiente investigación verídica realizada sobre el vídeo "${context?.title || ''}" del canal "${context?.author || ''}":
+
+${researchedContext}
+
+Extrae y estructura la receta completa real en formato JSON con todos sus ingredientes con cantidades y unidades para 4 comensales, y todos los pasos ordenados de elaboración.
+REGLA CRÍTICA: En el campo "name" pon el nombre culinario auténtico del plato (por ejemplo "Panizas de Cádiz"), NUNCA el título publicitario o con emojis.`;
+  } else if (hasOriginUrl && !hasText) {
     directPrompt = `Genera la receta completa, auténtica y detallada para el siguiente plato:
 Título / Nombre: "${recipeTopic}"
 ${context?.author ? `Canal / Autor de referencia: "${context.author}"` : ''}
 ${context?.originUrl ? `Enlace de origen: ${context.originUrl}` : ''}
 
 INSTRUCCIONES CLAVE:
-1. Formula una lista completa y realista de ingredientes con cantidades exactas para 4 comensales y unidades de medida claras (g, ml, cucharadas, unidades).
-2. Desarrolla todos los pasos de elaboración cronológicos, detallando técnicas, temperaturas y tiempos para que quede perfecta.
-3. Asigna la categoría culinaria adecuada y tiempos aproximados de preparación y cocción.
-4. Devuelve ÚNICAMENTE el objeto JSON.`;
+1. Si el título parece un reclamo o no indica el plato claramente, deduce el plato tradicional español al que hace referencia el autor.
+2. Formula una lista completa y realista de ingredientes con cantidades exactas para 4 comensales y unidades de medida claras (g, ml, cucharadas, unidades).
+3. Desarrolla todos los pasos de elaboración cronológicos, detallando técnicas, temperaturas y tiempos para que quede perfecta.
+4. Asigna la categoría culinaria adecuada y pon un nombre apetitoso y real en "name".
+5. Devuelve ÚNICAMENTE el objeto JSON.`;
   } else if (hasOriginUrl && hasText) {
     directPrompt = `Enlace original: ${context?.originUrl}
 ${context?.title ? `Título: "${context.title}"` : ''}
