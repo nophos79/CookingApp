@@ -131,7 +131,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                   <span>Google Gemini AI (Recomendado)</span>
                 </div>
                 <p className="text-[11px] text-neutral-500 mt-0.5">
-                  Autoselecciona la mejor versión disponible para tu cuenta (Gemini 2.0 / Flash). Estructuración inteligente y extracción de ingredientes a partir de enlaces.
+                  Autoselecciona la versión más avanzada y rápida disponible (Gemini Flash / 3.8+). Estructuración inteligente y extracción de ingredientes a partir de enlaces.
                 </p>
               </div>
             </label>
