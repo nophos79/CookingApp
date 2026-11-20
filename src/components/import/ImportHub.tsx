@@ -45,6 +45,7 @@ export const ImportHub: React.FC<ImportHubProps> = ({
   const [isScrapingUrl, setIsScrapingUrl] = useState(false);
   const [scrapedMeta, setScrapedMeta] = useState<ScrapedUrlMetadata | null>(null);
   const [transcriptText, setTranscriptText] = useState(initialText);
+  const [showManualTranscript, setShowManualTranscript] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [urlError, setUrlError] = useState('');
 
@@ -83,12 +84,25 @@ export const ImportHub: React.FC<ImportHubProps> = ({
     }
   };
 
-  const handleExtractFromUrl = async (fromTitleOnly = false) => {
-    const hasText = transcriptText.trim().length > 0;
-    const textToProcess = hasText ? transcriptText.trim() : (scrapedMeta?.title || '');
+  const handleExtractFromUrl = async () => {
+    let currentMeta = scrapedMeta;
+    if (!currentMeta && urlInput.trim()) {
+      try {
+        setIsScrapingUrl(true);
+        currentMeta = await scrapeUrlMetadata(urlInput.trim());
+        setScrapedMeta(currentMeta);
+      } catch (e) {
+        console.warn('Scrape failed:', e);
+      } finally {
+        setIsScrapingUrl(false);
+      }
+    }
 
-    if (!textToProcess) {
-      setUrlError('Introduce un enlace de vídeo o pega el texto de la receta.');
+    const hasText = transcriptText.trim().length > 0;
+    const textToProcess = hasText ? transcriptText.trim() : (currentMeta?.title || urlInput.trim());
+
+    if (!urlInput.trim() && !hasText) {
+      setUrlError('Introduce un enlace de YouTube o receta web.');
       return;
     }
 
@@ -97,18 +111,18 @@ export const ImportHub: React.FC<ImportHubProps> = ({
 
     try {
       const structured = await aiService.extractRecipe(textToProcess, {
-        title: scrapedMeta?.title,
-        originUrl: scrapedMeta?.canonicalUrl,
-        generateFromTitleIfEmpty: !hasText || fromTitleOnly,
+        title: currentMeta?.title,
+        originUrl: currentMeta?.canonicalUrl || urlInput.trim(),
+        generateFromTitleIfEmpty: !hasText,
       });
 
       // Prepare recipe for review and editing in RecipeForm
       onReviewImportedRecipe({
-        name: structured.name || scrapedMeta?.title || 'Receta importada',
+        name: structured.name || currentMeta?.title || 'Receta importada',
         description: structured.description || '',
         categoryId: structured.categoryId || categories[0]?.id || 'otros',
         subcategory: structured.subcategory,
-        mainPhoto: scrapedMeta?.thumbnailBase64 || scrapedMeta?.thumbnailUrl,
+        mainPhoto: currentMeta?.thumbnailBase64 || currentMeta?.thumbnailUrl,
         prepTimeMinutes: structured.prepTimeMinutes || 20,
         cookTimeMinutes: structured.cookTimeMinutes || 30,
         servings: structured.servings || 4,
@@ -117,9 +131,9 @@ export const ImportHub: React.FC<ImportHubProps> = ({
         isFavorite: false,
         aiGenerated: structured.aiAssisted,
         origin: {
-          type: scrapedMeta?.platform || 'youtube',
-          originalUrl: scrapedMeta?.canonicalUrl || urlInput.trim(),
-          author: scrapedMeta?.author,
+          type: currentMeta?.platform || 'youtube',
+          originalUrl: currentMeta?.canonicalUrl || urlInput.trim(),
+          author: currentMeta?.author,
           addedAt: new Date().toISOString(),
           status: 'available',
         },
@@ -129,7 +143,7 @@ export const ImportHub: React.FC<ImportHubProps> = ({
         steps: (structured.steps && structured.steps.length > 0)
           ? structured.steps.map((st, idx) => ({ ...st, id: 'step-imp-' + idx }))
           : [{ id: 'step-imp-0', stepNumber: 1, instruction: 'Completar paso de elaboración' }],
-        personalNotes: structured.personalNotes || (!hasText ? 'Propuesta generada a partir del título del vídeo. Ajusta los ingredientes y pasos a tu gusto.' : undefined),
+        personalNotes: structured.personalNotes || (!hasText ? 'Receta extraída e investigada automáticamente con IA a partir del enlace. Revisa las cantidades y pasos.' : undefined),
       });
     } catch (err: any) {
       setUrlError('Error al estructurar receta con el asistente: ' + (err.message || 'error desconocido'));
@@ -369,69 +383,62 @@ export const ImportHub: React.FC<ImportHubProps> = ({
                 </div>
               )}
 
-              {/* Transcription & Description Area */}
-              <div className="space-y-2 pt-2 border-t border-neutral-100">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-bold text-neutral-700">
-                    Transcripción, descripción o notas del vídeo *
-                  </label>
-                  <span className="text-[11px] text-amber-800 font-semibold flex items-center gap-1">
-                    <Sparkles className="w-3 h-3" /> Asistente de estructuración
-                  </span>
-                </div>
-
-                <div className="p-3 bg-neutral-50 border border-neutral-200 rounded-xl text-xs text-neutral-600 space-y-1">
-                  <p className="font-semibold text-neutral-700 flex items-center gap-1">
-                    <HelpCircle className="w-3.5 h-3.5 text-amber-600" /> ¿Cómo obtener la transcripción en YouTube?
-                  </p>
-                  <p className="text-[11px] text-neutral-500">
-                    En el vídeo de YouTube: toca en la descripción <strong>"... Más"</strong> &rarr; pulsa en <strong>"Mostrar transcripción"</strong> y copia el texto aquí.
-                  </p>
-                </div>
-
-                <textarea
-                  rows={5}
-                  value={transcriptText}
-                  onChange={(e) => setTranscriptText(e.target.value)}
-                  placeholder="Pega aquí la descripción o la transcripción de YouTube con los ingredientes..."
-                  className="w-full p-3 text-xs sm:text-sm rounded-xl border border-neutral-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-hidden"
-                />
-              </div>
-
-              {!transcriptText.trim() && scrapedMeta?.title && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
-                  <p className="font-semibold flex items-center gap-1">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-600" /> ¿No tienes la transcripción a mano?
-                  </p>
-                  <p className="text-[11px] text-amber-800/90 mt-0.5">
-                    Puedes pulsar abajo y la IA de Gemini propondrá los ingredientes y pasos tradicionales para <strong>"{scrapedMeta.title}"</strong>.
-                  </p>
-                </div>
-              )}
-
+              {/* Botón principal de extracción automática con IA */}
               <button
                 type="button"
-                onClick={() => handleExtractFromUrl(false)}
-                disabled={isExtracting || (!transcriptText.trim() && !scrapedMeta?.title)}
+                onClick={handleExtractFromUrl}
+                disabled={isExtracting || (!urlInput.trim() && !transcriptText.trim())}
                 className="w-full py-3.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-sm rounded-2xl shadow-md transition active:scale-95 flex items-center justify-center gap-2"
               >
                 {isExtracting ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>Estructurando ingredientes y pasos...</span>
+                    <span>Investigando vídeo y extrayendo ingredientes con IA...</span>
                   </>
                 ) : (
                   <>
-                    <Sparkles className="w-5 h-5" />
+                    <Sparkles className="w-5 h-5 text-amber-200" />
                     <span>
                       {transcriptText.trim()
                         ? 'Estructurar receta a partir del texto pegado'
-                        : 'Generar receta sugerida con IA por el título'}
+                        : 'Extraer receta con IA (solo con el enlace)'}
                     </span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
               </button>
+
+              {/* Opción desplegable para pegar texto/transcripción manual si se desea */}
+              <div className="pt-2 border-t border-neutral-100">
+                <button
+                  type="button"
+                  onClick={() => setShowManualTranscript(!showManualTranscript)}
+                  className="w-full py-1 text-center text-xs font-semibold text-neutral-500 hover:text-amber-800 transition flex items-center justify-center gap-1"
+                >
+                  <span>{showManualTranscript ? '▲ Ocultar transcripción manual' : '▼ ¿Quieres pegar la transcripción o notas manualmente? (Opcional)'}</span>
+                </button>
+
+                {showManualTranscript && (
+                  <div className="space-y-2 mt-3 animate-in fade-in duration-200">
+                    <div className="p-3 bg-neutral-50 border border-neutral-200 rounded-xl text-xs text-neutral-600 space-y-1">
+                      <p className="font-semibold text-neutral-700 flex items-center gap-1">
+                        <HelpCircle className="w-3.5 h-3.5 text-amber-600" /> Cómo obtener la transcripción en YouTube:
+                      </p>
+                      <p className="text-[11px] text-neutral-500">
+                        En el vídeo de YouTube: toca en la descripción <strong>"... Más"</strong> &rarr; pulsa en <strong>"Mostrar transcripción"</strong> y pega el texto abajo.
+                      </p>
+                    </div>
+
+                    <textarea
+                      rows={5}
+                      value={transcriptText}
+                      onChange={(e) => setTranscriptText(e.target.value)}
+                      placeholder="Pega aquí la transcripción o notas del cocinero si prefieres proporcionarlas manualmente..."
+                      className="w-full p-3 text-xs sm:text-sm rounded-xl border border-neutral-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-hidden"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
