@@ -65,17 +65,19 @@ export async function getBestGeminiModel(apiKey: string): Promise<string> {
       const data = await res.json();
       const availableModels: string[] = (data.models || [])
         .filter((m: any) => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
-        .map((m: any) => m.name.replace(/^models\//, ''));
+        .map((m: any) => m.name.replace(/^models\//, ''))
+        // Exclude deprecated models that reject new users
+        .filter((name: string) => !name.includes('2.5-flash'));
 
-      // Priority list of modern, fast, and structured-output capable models
+      // Priority list: modern models first
       const preferred = [
-        'gemini-2.5-flash',
+        'gemini-3.8-flash',
+        'gemini-3-flash',
         'gemini-2.0-flash',
         'gemini-2.0-flash-exp',
         'gemini-1.5-flash-latest',
         'gemini-1.5-flash',
         'gemini-1.5-flash-002',
-        'gemini-1.5-flash-001',
         'gemini-1.5-pro',
         'gemini-pro',
       ];
@@ -87,14 +89,13 @@ export async function getBestGeminiModel(apiKey: string): Promise<string> {
         }
       }
 
-      // If no exact preferred match, pick any available flash model
+      // If no exact match, pick any non-2.5 flash model
       const anyFlash = availableModels.find((m) => m.toLowerCase().includes('flash'));
       if (anyFlash) {
         cachedModelName = anyFlash;
         return anyFlash;
       }
 
-      // Fallback to any gemini model supporting generateContent
       const anyGemini = availableModels.find((m) => m.toLowerCase().includes('gemini'));
       if (anyGemini) {
         cachedModelName = anyGemini;
@@ -102,11 +103,11 @@ export async function getBestGeminiModel(apiKey: string): Promise<string> {
       }
     }
   } catch (e) {
-    console.warn('No se pudo listar modelos desde Google, probando gemini-2.0-flash:', e);
+    console.warn('No se pudo listar modelos desde Google, probando gemini-3.8-flash:', e);
   }
 
-  // Safe universal fallback
-  cachedModelName = 'gemini-2.0-flash';
+  // Modern default fallback
+  cachedModelName = 'gemini-3.8-flash';
   return cachedModelName;
 }
 
@@ -121,10 +122,21 @@ export async function testGeminiApiKey(apiKey: string): Promise<string> {
       generationConfig: { maxOutputTokens: 10 },
     }),
   });
+
   if (!response.ok) {
     const errData = await response.json().catch(() => ({}));
-    throw new Error(errData?.error?.message || `Error HTTP ${response.status}`);
+    const errorMsg = errData?.error?.message || '';
+
+    // If Google tells us to use a specific model (e.g. models/gemini-3.8-flash), auto-switch!
+    const suggested = errorMsg.match(/models\/([a-zA-Z0-9.-]+)/);
+    if (suggested && suggested[1] !== model) {
+      cachedModelName = suggested[1];
+      return testGeminiApiKey(apiKey);
+    }
+
+    throw new Error(errorMsg || `Error HTTP ${response.status}`);
   }
+
   return model;
 }
 
@@ -224,8 +236,18 @@ Extrae o genera todos los ingredientes necesarios con cantidades y unidades, y l
 
   if (!directResponse.ok) {
     const errorData = await directResponse.json().catch(() => ({}));
+    const errorMsg = errorData?.error?.message || '';
+
+    // If Google recommends a specific model (e.g. "use models/gemini-3.8-flash"), auto-switch and retry immediately!
+    const suggestedMatch = errorMsg.match(/models\/([a-zA-Z0-9.-]+)/);
+    if (suggestedMatch && suggestedMatch[1] !== model) {
+      console.log(`Cambiando automáticamente al modelo recomendado por Google: ${suggestedMatch[1]}`);
+      cachedModelName = suggestedMatch[1];
+      return extractWithGemini(rawText, apiKey, context);
+    }
+
     throw new Error(
-      errorData?.error?.message || `Error en la API de Gemini (${model}) (Código ${directResponse.status})`
+      errorMsg || `Error en la API de Gemini (${model}) (Código ${directResponse.status})`
     );
   }
 
