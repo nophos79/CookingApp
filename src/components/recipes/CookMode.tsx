@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   ChevronLeft,
@@ -8,7 +8,7 @@ import {
   Clock,
   Sparkles,
   SunMedium,
-  Check,
+  MoveHorizontal,
 } from 'lucide-react';
 import type { Recipe } from '../../types/recipe';
 
@@ -19,9 +19,14 @@ interface CookModeProps {
 
 export const CookMode: React.FC<CookModeProps> = ({ recipe, onExit }) => {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [completedSteps, setCompletedSteps] = useState<Record<number, boolean>>({});
   const [showIngredientsDrawer, setShowIngredientsDrawer] = useState(false);
   const [wakeLockActive, setWakeLockActive] = useState(false);
+
+  // Swipe & Drag gesture state
+  const [dragOffset, setDragOffset] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const startPosRef = useRef<{ x: number; y: number } | null>(null);
+  const isHorizontalGestureRef = useRef<boolean | null>(null);
 
   const steps = recipe.steps || [];
   const currentStep = steps[currentStepIndex];
@@ -51,13 +56,6 @@ export const CookMode: React.FC<CookModeProps> = ({ recipe, onExit }) => {
     };
   }, []);
 
-  const toggleStepCompleted = (index: number) => {
-    setCompletedSteps((prev) => ({
-      ...prev,
-      [index]: !prev[index],
-    }));
-  };
-
   const handleNext = () => {
     if (currentStepIndex < totalSteps - 1) {
       setCurrentStepIndex((prev) => prev + 1);
@@ -70,8 +68,104 @@ export const CookMode: React.FC<CookModeProps> = ({ recipe, onExit }) => {
     }
   };
 
+  // Keyboard navigation support (PC / external keyboards)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+        handleNext();
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        handlePrev();
+      } else if (e.key === 'Escape') {
+        if (showIngredientsDrawer) {
+          setShowIngredientsDrawer(false);
+        } else {
+          onExit();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentStepIndex, totalSteps, showIngredientsDrawer]);
+
+  // Touch Swipe Handlers (Mobile & Tablets)
+  const handleTouchStart = (e: React.TouchEvent) => {
+    startPosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    isHorizontalGestureRef.current = null;
+    setIsDragging(true);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!startPosRef.current) return;
+    const currentX = e.touches[0].clientX;
+    const currentY = e.touches[0].clientY;
+    const deltaX = currentX - startPosRef.current.x;
+    const deltaY = currentY - startPosRef.current.y;
+
+    if (isHorizontalGestureRef.current === null) {
+      // Determine gesture direction once movement exceeds 10px
+      if (Math.abs(deltaX) > 10 || Math.abs(deltaY) > 10) {
+        isHorizontalGestureRef.current = Math.abs(deltaX) > Math.abs(deltaY);
+      }
+    }
+
+    if (isHorizontalGestureRef.current) {
+      // Elastic resistance at beginning / end of recipe
+      const isAtStart = currentStepIndex === 0 && deltaX > 0;
+      const isAtEnd = currentStepIndex === totalSteps - 1 && deltaX < 0;
+      const factor = isAtStart || isAtEnd ? 0.25 : 1;
+      setDragOffset(deltaX * factor);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (isHorizontalGestureRef.current) {
+      const swipeThreshold = 55;
+      if (dragOffset < -swipeThreshold && currentStepIndex < totalSteps - 1) {
+        handleNext();
+      } else if (dragOffset > swipeThreshold && currentStepIndex > 0) {
+        handlePrev();
+      }
+    }
+    setDragOffset(0);
+    setIsDragging(false);
+    startPosRef.current = null;
+    isHorizontalGestureRef.current = null;
+  };
+
+  // Mouse Drag Handlers (Desktop / Trackpads)
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    startPosRef.current = { x: e.clientX, y: e.clientY };
+    isHorizontalGestureRef.current = true;
+    setIsDragging(true);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!startPosRef.current || !isDragging) return;
+    const deltaX = e.clientX - startPosRef.current.x;
+    const isAtStart = currentStepIndex === 0 && deltaX > 0;
+    const isAtEnd = currentStepIndex === totalSteps - 1 && deltaX < 0;
+    const factor = isAtStart || isAtEnd ? 0.25 : 1;
+    setDragOffset(deltaX * factor);
+  };
+
+  const handleMouseUp = () => {
+    if (isDragging && isHorizontalGestureRef.current) {
+      const swipeThreshold = 55;
+      if (dragOffset < -swipeThreshold && currentStepIndex < totalSteps - 1) {
+        handleNext();
+      } else if (dragOffset > swipeThreshold && currentStepIndex > 0) {
+        handlePrev();
+      }
+    }
+    setDragOffset(0);
+    setIsDragging(false);
+    startPosRef.current = null;
+    isHorizontalGestureRef.current = null;
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-neutral-900 text-white flex flex-col justify-between overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-neutral-900 text-white flex flex-col justify-between overflow-hidden select-none">
       {/* Top Bar */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-800 bg-neutral-900/90 backdrop-blur-md">
         <div className="flex items-center gap-3">
@@ -116,66 +210,84 @@ export const CookMode: React.FC<CookModeProps> = ({ recipe, onExit }) => {
         />
       </div>
 
-      {/* Center Content: Big Step Text */}
-      <div className="flex-1 flex flex-col justify-center px-6 py-6 max-w-2xl mx-auto w-full overflow-y-auto">
-        {currentStep ? (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <span className="inline-block text-xs font-bold uppercase tracking-wider text-amber-400 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
-                Paso {currentStepIndex + 1} de {totalSteps}
-              </span>
-
-              {currentStep.estimatedMinutes && (
-                <span className="flex items-center gap-1 text-xs text-neutral-400 bg-neutral-800/80 px-2.5 py-1 rounded-full">
-                  <Clock className="w-3.5 h-3.5 text-amber-400" />
-                  {currentStep.estimatedMinutes} min
-                </span>
-              )}
-            </div>
-
-            <p className="text-2xl sm:text-3xl md:text-4xl font-semibold leading-relaxed text-neutral-100">
-              {currentStep.instruction}
-            </p>
-
-            {currentStep.photoUrl && (
-              <div className="rounded-2xl overflow-hidden max-h-56 bg-neutral-800">
-                <img
-                  src={currentStep.photoUrl}
-                  alt={`Foto paso ${currentStep.stepNumber}`}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            )}
-
-            <button
-              onClick={() => toggleStepCompleted(currentStepIndex)}
-              className={`flex items-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-xl transition ${
-                completedSteps[currentStepIndex]
-                  ? 'bg-emerald-600/30 text-emerald-400 border border-emerald-500/40'
-                  : 'bg-neutral-800 text-neutral-400 hover:text-white border border-neutral-700'
-              }`}
-            >
-              <div
-                className={`w-5 h-5 rounded-md flex items-center justify-center border ${
-                  completedSteps[currentStepIndex]
-                    ? 'bg-emerald-500 border-emerald-400 text-neutral-900'
-                    : 'border-neutral-500'
-                }`}
-              >
-                {completedSteps[currentStepIndex] && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-              </div>
-              <span>
-                {completedSteps[currentStepIndex] ? 'Paso completado' : 'Marcar como completado'}
-              </span>
-            </button>
-          </div>
-        ) : (
-          <div className="text-center space-y-4">
-            <Sparkles className="w-12 h-12 text-amber-400 mx-auto" />
-            <p className="text-xl font-bold">¡Buen provecho!</p>
-            <p className="text-sm text-neutral-400">Has revisado todos los pasos de esta receta.</p>
+      {/* Center Interactive Swipe / Drag Area */}
+      <div
+        className="flex-1 relative flex flex-col justify-center px-6 py-4 max-w-2xl mx-auto w-full overflow-hidden cursor-grab active:cursor-grabbing touch-pan-y"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      >
+        {/* Swipe Feedback Hints */}
+        {dragOffset > 25 && currentStepIndex > 0 && (
+          <div className="absolute left-4 top-1/2 -translate-y-1/2 z-20 flex items-center gap-1.5 bg-neutral-800/90 text-amber-400 border border-amber-500/30 px-3 py-2 rounded-full text-xs font-bold shadow-xl animate-in fade-in zoom-in-90 duration-150">
+            <ChevronLeft className="w-4 h-4" />
+            <span>Anterior</span>
           </div>
         )}
+
+        {dragOffset < -25 && currentStepIndex < totalSteps - 1 && (
+          <div className="absolute right-4 top-1/2 -translate-y-1/2 z-20 flex items-center gap-1.5 bg-neutral-800/90 text-amber-400 border border-amber-500/30 px-3 py-2 rounded-full text-xs font-bold shadow-xl animate-in fade-in zoom-in-90 duration-150">
+            <span>Siguiente</span>
+            <ChevronRight className="w-4 h-4" />
+          </div>
+        )}
+
+        {/* Step Content Container with dynamic translateX */}
+        <div
+          className="w-full max-h-[75vh] overflow-y-auto px-1 py-2"
+          style={{
+            transform: `translateX(${dragOffset}px)`,
+            transition: isDragging ? 'none' : 'transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1)',
+          }}
+        >
+          {currentStep ? (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <span className="inline-block text-xs font-bold uppercase tracking-wider text-amber-400 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
+                  Paso {currentStepIndex + 1} de {totalSteps}
+                </span>
+
+                {currentStep.estimatedMinutes && (
+                  <span className="flex items-center gap-1 text-xs text-neutral-400 bg-neutral-800/80 px-2.5 py-1 rounded-full">
+                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                    {currentStep.estimatedMinutes} min
+                  </span>
+                )}
+              </div>
+
+              <p className="text-2xl sm:text-3xl md:text-4xl font-semibold leading-relaxed text-neutral-100 select-text">
+                {currentStep.instruction}
+              </p>
+
+              {currentStep.photoUrl && (
+                <div className="rounded-2xl overflow-hidden max-h-56 bg-neutral-800 pointer-events-none">
+                  <img
+                    src={currentStep.photoUrl}
+                    alt={`Foto paso ${currentStep.stepNumber}`}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              )}
+
+              {/* Subtly indicated gesture helper */}
+              <div className="pt-2 flex items-center justify-center gap-2 text-neutral-500 text-xs">
+                <MoveHorizontal className="w-4 h-4 text-neutral-500" />
+                <span>Desliza para cambiar de paso</span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center space-y-4">
+              <Sparkles className="w-12 h-12 text-amber-400 mx-auto" />
+              <p className="text-xl font-bold">¡Buen provecho!</p>
+              <p className="text-sm text-neutral-400">Has revisado todos los pasos de esta receta.</p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Bottom Large Nav Buttons for Mobile Cooking */}
