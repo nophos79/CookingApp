@@ -73,7 +73,15 @@ function getNextFallbackModel(currentModel: string): string {
 
 let cachedModelName: string | null = null;
 
-export async function getBestGeminiModel(apiKey: string): Promise<string> {
+export function getActiveGeminiModel(): string {
+  return cachedModelName || 'gemini-2.0-flash';
+}
+
+export async function getBestGeminiModel(apiKey: string, forcedModel?: string): Promise<string> {
+  if (forcedModel && forcedModel !== 'auto') {
+    cachedModelName = forcedModel;
+    return forcedModel;
+  }
   if (cachedModelName) return cachedModelName;
 
   try {
@@ -106,8 +114,8 @@ export async function getBestGeminiModel(apiKey: string): Promise<string> {
   return cachedModelName;
 }
 
-export async function testGeminiApiKey(apiKey: string): Promise<string> {
-  const model = await getBestGeminiModel(apiKey);
+export async function testGeminiApiKey(apiKey: string, forcedModel?: string): Promise<string> {
+  const model = await getBestGeminiModel(apiKey, forcedModel);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const response = await fetch(url, {
     method: 'POST',
@@ -147,10 +155,12 @@ export async function testGeminiApiKey(apiKey: string): Promise<string> {
 export async function extractWithGemini(
   rawText: string,
   apiKey: string,
-  context?: { title?: string; originUrl?: string; author?: string; generateFromTitleIfEmpty?: boolean },
+  context?: { title?: string; originUrl?: string; author?: string; generateFromTitleIfEmpty?: boolean; modelOverride?: string },
   attemptedModels: string[] = []
 ): Promise<ExtractedRecipeData> {
-  let model = await getBestGeminiModel(apiKey);
+  let model = context?.modelOverride && context.modelOverride !== 'auto'
+    ? context.modelOverride
+    : await getBestGeminiModel(apiKey);
   if (attemptedModels.includes(model)) {
     model = getNextFallbackModel(model);
     cachedModelName = model;

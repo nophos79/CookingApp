@@ -5,6 +5,7 @@ export type AIProviderType = 'heuristic' | 'gemini' | 'openai';
 export interface AISettings {
   provider: AIProviderType;
   geminiApiKey?: string;
+  geminiModel?: string; // e.g. 'auto', 'gemini-2.0-flash', etc.
   openaiApiKey?: string;
   openaiModel?: string; // e.g. gpt-4o-mini
 }

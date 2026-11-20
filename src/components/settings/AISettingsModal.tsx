@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X, Sparkles, Key, Check, ShieldCheck, ExternalLink, Cpu, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { aiService } from '../../services/ai/aiService';
 import type { AIProviderType, AISettings } from '../../services/ai/aiTypes';
-import { testGeminiApiKey } from '../../services/ai/geminiProvider';
+import { testGeminiApiKey, getActiveGeminiModel } from '../../services/ai/geminiProvider';
 import { forceAppUpdate } from '../../utils/pwaUpdate';
 
 interface AISettingsModalProps {
@@ -16,6 +16,14 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
     currentSettings.geminiApiKey?.trim() ? 'gemini' : (currentSettings.provider || 'heuristic')
   );
   const [geminiApiKey, setGeminiApiKey] = useState(currentSettings.geminiApiKey || '');
+
+  // Model selection state
+  const initialModel = currentSettings.geminiModel || 'auto';
+  const isKnownModel = ['auto', 'gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-3.8-flash'].includes(initialModel);
+  const [geminiModel, setGeminiModel] = useState<string>(isKnownModel ? initialModel : 'custom');
+  const [customModel, setCustomModel] = useState<string>(isKnownModel ? '' : initialModel);
+  const [activeModelName, setActiveModelName] = useState<string>(getActiveGeminiModel());
+
   const [isSaved, setIsSaved] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -30,8 +38,10 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
     setIsTesting(true);
     setTestResult(null);
     try {
-      const detectedModel = await testGeminiApiKey(geminiApiKey.trim());
-      setTestResult({ ok: true, message: `¡Conexión con Gemini verificada! (Modelo activo: ${detectedModel})` });
+      const selectedOrCustom = geminiModel === 'custom' ? (customModel.trim() || 'gemini-2.0-flash') : geminiModel;
+      const verifiedModel = await testGeminiApiKey(geminiApiKey.trim(), selectedOrCustom);
+      setActiveModelName(verifiedModel);
+      setTestResult({ ok: true, message: `¡Conexión verificada con éxito! (Modelo activo: ${verifiedModel})` });
       setProvider('gemini');
     } catch (err: any) {
       setTestResult({ ok: false, message: 'Error de validación: ' + (err.message || 'clave inválida') });
@@ -43,9 +53,12 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanKey = geminiApiKey.trim();
+    const effectiveModel = geminiModel === 'custom' ? (customModel.trim() || undefined) : (geminiModel === 'auto' ? undefined : geminiModel);
+
     const newSettings: AISettings = {
       provider: cleanKey ? 'gemini' : provider,
       geminiApiKey: cleanKey || undefined,
+      geminiModel: effectiveModel,
     };
     aiService.saveSettings(newSettings);
     setIsSaved(true);
@@ -57,7 +70,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="bg-white rounded-3xl p-6 max-w-md w-full space-y-5 shadow-2xl border border-neutral-100 animate-in fade-in zoom-in-95">
+      <div className="bg-white rounded-3xl p-6 max-w-md w-full space-y-5 shadow-2xl border border-neutral-100 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-neutral-100">
           <div className="flex items-center gap-2">
@@ -131,53 +144,98 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                   <span>Google Gemini AI (Recomendado)</span>
                 </div>
                 <p className="text-[11px] text-neutral-500 mt-0.5">
-                  Autoselecciona la versión más avanzada y rápida disponible (Gemini Flash / 3.8+). Estructuración inteligente y extracción de ingredientes a partir de enlaces.
+                  Estructuración inteligente y extracción automática de ingredientes y pasos a partir de enlaces de YouTube o recetas web.
                 </p>
               </div>
             </label>
           </div>
 
-          {/* Gemini API Key input (if Gemini selected) */}
+          {/* Gemini Settings Card */}
           {(provider === 'gemini' || !!geminiApiKey) && (
-            <div className="p-3.5 bg-neutral-50 rounded-2xl border border-neutral-200 space-y-2 animate-in fade-in">
-              <label className="block text-xs font-semibold text-neutral-700 flex items-center justify-between">
-                <span className="flex items-center gap-1">
-                  <Key className="w-3.5 h-3.5 text-amber-600" /> Clave API de Gemini
-                </span>
-                <a
-                  href="https://aistudio.google.com/app/apikey"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[11px] text-amber-700 hover:underline flex items-center gap-0.5 font-medium"
-                >
-                  <span>Obtener clave gratis</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              </label>
+            <div className="p-3.5 bg-neutral-50 rounded-2xl border border-neutral-200 space-y-3 animate-in fade-in">
+              {/* Clave API */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-neutral-700 flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <Key className="w-3.5 h-3.5 text-amber-600" /> Clave API de Gemini
+                  </span>
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-amber-700 hover:underline flex items-center gap-0.5 font-medium"
+                  >
+                    <span>Obtener clave gratis</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </label>
 
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  value={geminiApiKey}
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={geminiApiKey}
+                    onChange={(e) => {
+                      setGeminiApiKey(e.target.value);
+                      if (e.target.value.trim()) {
+                        setProvider('gemini');
+                      }
+                      setTestResult(null);
+                    }}
+                    placeholder="AIzaSy..."
+                    className="flex-1 px-3 py-2 text-xs bg-white rounded-xl border border-neutral-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-hidden font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleTestKey}
+                    disabled={isTesting || !geminiApiKey.trim()}
+                    className="px-3 py-2 bg-neutral-200 hover:bg-neutral-300 disabled:opacity-40 text-neutral-800 text-xs font-semibold rounded-xl transition flex items-center gap-1 shrink-0"
+                  >
+                    {isTesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                    <span>Probar</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Selector de Modelo y Estado Actual */}
+              <div className="space-y-1.5 pt-2 border-t border-neutral-200/60">
+                <div className="flex items-center justify-between text-xs font-semibold text-neutral-700">
+                  <span className="flex items-center gap-1">
+                    <Cpu className="w-3.5 h-3.5 text-amber-600" /> Modelo de Gemini
+                  </span>
+                  <span className="text-[11px] font-normal text-neutral-500">
+                    Activo: <strong className="text-amber-800 font-mono">{activeModelName}</strong>
+                  </span>
+                </div>
+
+                <select
+                  value={geminiModel}
                   onChange={(e) => {
-                    setGeminiApiKey(e.target.value);
-                    if (e.target.value.trim()) {
-                      setProvider('gemini');
-                    }
+                    setGeminiModel(e.target.value);
                     setTestResult(null);
                   }}
-                  placeholder="AIzaSy..."
-                  className="flex-1 px-3 py-2 text-xs bg-white rounded-xl border border-neutral-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-hidden font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={handleTestKey}
-                  disabled={isTesting || !geminiApiKey.trim()}
-                  className="px-3 py-2 bg-neutral-200 hover:bg-neutral-300 disabled:opacity-40 text-neutral-800 text-xs font-semibold rounded-xl transition flex items-center gap-1 shrink-0"
+                  className="w-full px-3 py-2 text-xs bg-white rounded-xl border border-neutral-300 focus:border-amber-500 outline-hidden font-medium text-neutral-800"
                 >
-                  {isTesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                  <span>Probar</span>
-                </button>
+                  <option value="auto">Automático (Recomendado - Auto-conmutación si hay saturación)</option>
+                  <option value="gemini-2.0-flash">Gemini 2.0 Flash (Alta capacidad y estabilidad)</option>
+                  <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash Latest</option>
+                  <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                  <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+                  <option value="custom">Otro modelo personalizado...</option>
+                </select>
+
+                {geminiModel === 'custom' && (
+                  <input
+                    type="text"
+                    value={customModel}
+                    onChange={(e) => setCustomModel(e.target.value.trim())}
+                    placeholder="Escribe el nombre del modelo (ej: gemini-2.0-flash)"
+                    className="w-full px-3 py-1.5 text-xs bg-white rounded-xl border border-neutral-300 font-mono outline-hidden mt-1"
+                  />
+                )}
+
+                <p className="text-[10px] text-neutral-400">
+                  El modo automático selecciona el modelo más rápido de tu cuenta y cambia de forma transparente si Google sufre picos de saturación.
+                </p>
               </div>
 
               {testResult && (

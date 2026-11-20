@@ -42,7 +42,10 @@ export const aiService = {
           'Has seleccionado el motor Gemini pero no has introducido tu clave API. Configúrala en Ajustes (icono de engranaje).'
         );
       }
-      return await extractWithGemini(rawText, settings.geminiApiKey!.trim(), context);
+      return await extractWithGemini(rawText, settings.geminiApiKey!.trim(), {
+        ...context,
+        modelOverride: settings.geminiModel,
+      });
     }
 
     // 2. Local heuristic parser fallback
