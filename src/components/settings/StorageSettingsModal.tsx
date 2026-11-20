@@ -54,12 +54,21 @@ export const StorageSettingsModal: React.FC<StorageSettingsModalProps> = ({
   };
 
   const handleConnect = async () => {
-    if (!clientId.trim()) {
+    const cleanId = clientId.replace(/\s+/g, '');
+    if (!cleanId) {
       setStatusMessage({ type: 'error', text: 'Introduce primero tu Google Client ID.' });
       return;
     }
 
-    googleDriveService.saveConfig({ clientId: clientId.trim() });
+    if (!cleanId.endsWith('.apps.googleusercontent.com')) {
+      setStatusMessage({
+        type: 'error',
+        text: 'El Client ID parece incompleto o erróneo. Debe terminar exactamente en .apps.googleusercontent.com (comprueba que no se haya cortado al copiarlo al móvil).',
+      });
+      return;
+    }
+
+    googleDriveService.saveConfig({ clientId: cleanId });
     setIsSyncing(true);
     setStatusMessage(null);
 
@@ -300,7 +309,7 @@ export const StorageSettingsModal: React.FC<StorageSettingsModalProps> = ({
               <input
                 type="text"
                 value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
+                onChange={(e) => setClientId(e.target.value.replace(/\s+/g, ''))}
                 placeholder="123456789-xxxx.apps.googleusercontent.com"
                 className="flex-1 px-3 py-2 text-xs bg-white rounded-xl border border-neutral-300 font-mono outline-hidden focus:border-amber-500"
               />
@@ -311,6 +320,12 @@ export const StorageSettingsModal: React.FC<StorageSettingsModalProps> = ({
                 Guardar ID
               </button>
             </div>
+
+            {clientId && !clientId.endsWith('.apps.googleusercontent.com') && (
+              <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 p-2 rounded-xl">
+                ⚠️ <strong>Aviso:</strong> El ID parece incompleto. Un Client ID de Google debe terminar obligatoriamente en <code className="font-mono font-bold">.apps.googleusercontent.com</code>. Revisa que no se haya cortado al copiarlo al móvil.
+              </p>
+            )}
           </form>
 
           {/* Connect Button if not connected */}
