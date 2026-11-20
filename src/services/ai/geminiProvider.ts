@@ -54,8 +54,65 @@ function parseJsonSafe(text: string): any {
   }
 }
 
-export async function testGeminiApiKey(apiKey: string): Promise<boolean> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+let cachedModelName: string | null = null;
+
+export async function getBestGeminiModel(apiKey: string): Promise<string> {
+  if (cachedModelName) return cachedModelName;
+
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    if (res.ok) {
+      const data = await res.json();
+      const availableModels: string[] = (data.models || [])
+        .filter((m: any) => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+        .map((m: any) => m.name.replace(/^models\//, ''));
+
+      // Priority list of modern, fast, and structured-output capable models
+      const preferred = [
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'gemini-2.0-flash-exp',
+        'gemini-1.5-flash-latest',
+        'gemini-1.5-flash',
+        'gemini-1.5-flash-002',
+        'gemini-1.5-flash-001',
+        'gemini-1.5-pro',
+        'gemini-pro',
+      ];
+
+      for (const pref of preferred) {
+        if (availableModels.includes(pref)) {
+          cachedModelName = pref;
+          return pref;
+        }
+      }
+
+      // If no exact preferred match, pick any available flash model
+      const anyFlash = availableModels.find((m) => m.toLowerCase().includes('flash'));
+      if (anyFlash) {
+        cachedModelName = anyFlash;
+        return anyFlash;
+      }
+
+      // Fallback to any gemini model supporting generateContent
+      const anyGemini = availableModels.find((m) => m.toLowerCase().includes('gemini'));
+      if (anyGemini) {
+        cachedModelName = anyGemini;
+        return anyGemini;
+      }
+    }
+  } catch (e) {
+    console.warn('No se pudo listar modelos desde Google, probando gemini-2.0-flash:', e);
+  }
+
+  // Safe universal fallback
+  cachedModelName = 'gemini-2.0-flash';
+  return cachedModelName;
+}
+
+export async function testGeminiApiKey(apiKey: string): Promise<string> {
+  const model = await getBestGeminiModel(apiKey);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -68,7 +125,7 @@ export async function testGeminiApiKey(apiKey: string): Promise<boolean> {
     const errData = await response.json().catch(() => ({}));
     throw new Error(errData?.error?.message || `Error HTTP ${response.status}`);
   }
-  return true;
+  return model;
 }
 
 export async function extractWithGemini(
@@ -76,7 +133,8 @@ export async function extractWithGemini(
   apiKey: string,
   context?: { title?: string; originUrl?: string; author?: string; generateFromTitleIfEmpty?: boolean }
 ): Promise<ExtractedRecipeData> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  const model = await getBestGeminiModel(apiKey);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const hasOriginUrl = !!context?.originUrl && context.originUrl.startsWith('http');
   const hasText = !!rawText && rawText.trim().length > 30 && rawText !== context?.originUrl;
@@ -112,7 +170,7 @@ Devuelve el resultado en formato JSON estricto con los campos: name, description
         if (textOutput) {
           const parsed = parseJsonSafe(textOutput);
           if (Array.isArray(parsed.ingredients) && parsed.ingredients.length > 0) {
-            return formatExtractedData(parsed, context);
+            return formatExtractedData(parsed, context, model);
           }
         }
       }
@@ -167,7 +225,7 @@ Extrae o genera todos los ingredientes necesarios con cantidades y unidades, y l
   if (!directResponse.ok) {
     const errorData = await directResponse.json().catch(() => ({}));
     throw new Error(
-      errorData?.error?.message || `Error en la API de Gemini (Código ${directResponse.status})`
+      errorData?.error?.message || `Error en la API de Gemini (${model}) (Código ${directResponse.status})`
     );
   }
 
@@ -210,10 +268,10 @@ Esquema: { "ingredients": [{"name": "ingrediente", "amount": "100", "unit": "g"}
     }
   }
 
-  return formatExtractedData(parsed, context);
+  return formatExtractedData(parsed, context, model);
 }
 
-function formatExtractedData(parsed: any, context?: { title?: string }): ExtractedRecipeData {
+function formatExtractedData(parsed: any, context?: { title?: string }, modelName?: string): ExtractedRecipeData {
   return {
     name: parsed.name || context?.title || 'Receta extraída',
     description: parsed.description || undefined,
@@ -227,7 +285,7 @@ function formatExtractedData(parsed: any, context?: { title?: string }): Extract
     ingredients: Array.isArray(parsed.ingredients) ? parsed.ingredients : [],
     steps: Array.isArray(parsed.steps) ? parsed.steps : [],
     personalNotes: parsed.personalNotes || undefined,
-    confidenceNotes: 'Estructurado con Google Gemini 1.5 Flash.',
+    confidenceNotes: `Estructurado con Google ${modelName || 'Gemini'}.`,
     aiAssisted: true,
   };
 }

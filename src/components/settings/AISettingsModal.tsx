@@ -29,8 +29,8 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
     setIsTesting(true);
     setTestResult(null);
     try {
-      await testGeminiApiKey(geminiApiKey.trim());
-      setTestResult({ ok: true, message: '¡Conexión con Gemini verificada con éxito!' });
+      const detectedModel = await testGeminiApiKey(geminiApiKey.trim());
+      setTestResult({ ok: true, message: `¡Conexión con Gemini verificada! (Modelo activo: ${detectedModel})` });
       setProvider('gemini');
     } catch (err: any) {
       setTestResult({ ok: false, message: 'Error de validación: ' + (err.message || 'clave inválida') });
