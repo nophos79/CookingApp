@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X, Sparkles, Key, Check, ShieldCheck, ExternalLink, Cpu, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { aiService } from '../../services/ai/aiService';
 import type { AIProviderType, AISettings } from '../../services/ai/aiTypes';
-import { testGeminiApiKey, getActiveGeminiModel, fetchAvailableGeminiModels } from '../../services/ai/geminiProvider';
+import { testGeminiApiKey, getActiveGeminiModel, setActiveGeminiModel, fetchAvailableGeminiModels } from '../../services/ai/geminiProvider';
 import { forceAppUpdate } from '../../utils/pwaUpdate';
 
 interface AISettingsModalProps {
@@ -28,7 +28,11 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
   const [customModel, setCustomModel] = useState<string>(
     ['auto', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro'].includes(initialModel) ? '' : initialModel
   );
-  const [activeModelName, setActiveModelName] = useState<string>(getActiveGeminiModel());
+  const [activeModelName, setActiveModelName] = useState<string>(
+    initialModel !== 'auto' && initialModel !== 'custom'
+      ? initialModel
+      : getActiveGeminiModel()
+  );
 
   const [isSaved, setIsSaved] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -47,6 +51,32 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
 
   if (!isOpen) return null;
 
+  const handleModelChange = (newModel: string) => {
+    setGeminiModel(newModel);
+    setTestResult(null);
+    if (newModel === 'auto') {
+      setActiveGeminiModel(null);
+      setActiveModelName(getActiveGeminiModel());
+    } else if (newModel === 'custom') {
+      const custom = customModel.trim();
+      setActiveGeminiModel(custom || null);
+      setActiveModelName(custom || 'personalizado');
+    } else {
+      setActiveGeminiModel(newModel);
+      setActiveModelName(newModel);
+    }
+  };
+
+  const handleCustomModelChange = (val: string) => {
+    setCustomModel(val);
+    setTestResult(null);
+    if (geminiModel === 'custom') {
+      const clean = val.trim();
+      setActiveGeminiModel(clean || null);
+      setActiveModelName(clean || 'personalizado');
+    }
+  };
+
   const handleTestKey = async () => {
     if (!geminiApiKey.trim()) {
       setTestResult({ ok: false, message: 'Introduce una clave API para probar.' });
@@ -58,6 +88,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
       const selectedOrCustom = geminiModel === 'custom' ? (customModel.trim() || 'gemini-2.0-flash') : geminiModel;
       const verifiedModel = await testGeminiApiKey(geminiApiKey.trim(), selectedOrCustom);
       setActiveModelName(verifiedModel);
+      setActiveGeminiModel(verifiedModel);
 
       const liveModels = await fetchAvailableGeminiModels(geminiApiKey.trim());
       if (liveModels && liveModels.length > 0) {
@@ -77,6 +108,9 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
     e.preventDefault();
     const cleanKey = geminiApiKey.trim();
     const effectiveModel = geminiModel === 'custom' ? (customModel.trim() || undefined) : (geminiModel === 'auto' ? undefined : geminiModel);
+
+    // Immediately sync active model into memory
+    setActiveGeminiModel(effectiveModel || null);
 
     const newSettings: AISettings = {
       provider: cleanKey ? 'gemini' : provider,
@@ -226,16 +260,17 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                     <Cpu className="w-3.5 h-3.5 text-amber-600" /> Modelo de Gemini
                   </span>
                   <span className="text-[11px] font-normal text-neutral-500">
-                    Activo: <strong className="text-amber-800 font-mono">{activeModelName}</strong>
+                    Activo: <strong className="text-amber-800 font-mono">
+                      {geminiModel === 'auto'
+                        ? `Auto (${activeModelName})`
+                        : activeModelName}
+                    </strong>
                   </span>
                 </div>
 
                 <select
                   value={geminiModel}
-                  onChange={(e) => {
-                    setGeminiModel(e.target.value);
-                    setTestResult(null);
-                  }}
+                  onChange={(e) => handleModelChange(e.target.value)}
                   className="w-full px-3 py-2 text-xs bg-white rounded-xl border border-neutral-300 focus:border-amber-500 outline-hidden font-medium text-neutral-800"
                 >
                   <option value="auto">Automático (Recomendado - Selección óptima y sin cortes)</option>
@@ -257,8 +292,8 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                   <input
                     type="text"
                     value={customModel}
-                    onChange={(e) => setCustomModel(e.target.value.trim())}
-                    placeholder="Escribe el nombre del modelo (ej: gemini-2.0-flash)"
+                    onChange={(e) => handleCustomModelChange(e.target.value)}
+                    placeholder="Escribe el nombre del modelo (ej: gemini-2.0-flash-lite)"
                     className="w-full px-3 py-1.5 text-xs bg-white rounded-xl border border-neutral-300 font-mono outline-hidden mt-1"
                   />
                 )}

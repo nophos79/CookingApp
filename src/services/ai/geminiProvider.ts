@@ -73,6 +73,10 @@ export function getActiveGeminiModel(): string {
   return cachedModelName || 'gemini-2.0-flash';
 }
 
+export function setActiveGeminiModel(model: string | null): void {
+  cachedModelName = (!model || model === 'auto') ? null : model;
+}
+
 export async function fetchAvailableGeminiModels(apiKey: string): Promise<string[]> {
   if (!apiKey || !apiKey.trim()) return FALLBACK_CHAIN;
   if (discoveredModelsCache && discoveredModelsCache.length > 0) return discoveredModelsCache;
