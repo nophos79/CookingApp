@@ -37,11 +37,17 @@ REGLAS CRÍTICAS DE PRECISIÓN:
 export async function extractWithGemini(
   rawText: string,
   apiKey: string,
-  context?: { title?: string; originUrl?: string }
+  context?: { title?: string; originUrl?: string; generateFromTitleIfEmpty?: boolean }
 ): Promise<ExtractedRecipeData> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
-  const prompt = `Contexto adicional (si existe): Título: "${context?.title || ''}", URL: "${context?.originUrl || ''}".
+  const isOnlyTitle = (!rawText || rawText.trim().length < 40) && (context?.title || context?.generateFromTitleIfEmpty);
+
+  const prompt = isOnlyTitle
+    ? `El usuario no ha proporcionado transcripción, solo el título del plato: "${context?.title || rawText}".
+Genera una receta tradicional completa y bien estructurada para este plato, indicando ingredientes habituales con cantidades razonables (4 personas), tiempos y pasos paso a paso.
+En "personalNotes" añade: "Receta sugerida por el asistente a partir del título del vídeo. Modifica cantidades o pasos según tu gusto."`
+    : `Contexto adicional (si existe): Título: "${context?.title || ''}", URL: "${context?.originUrl || ''}".
 
 Texto fuente / Transcripción de la receta:
 ${rawText}

@@ -24,7 +24,7 @@ export const aiService = {
 
   async extractRecipe(
     rawText: string,
-    context?: { title?: string; originUrl?: string }
+    context?: { title?: string; originUrl?: string; generateFromTitleIfEmpty?: boolean }
   ): Promise<ExtractedRecipeData> {
     const settings = this.getSettings();
 

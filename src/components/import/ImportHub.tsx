@@ -83,10 +83,12 @@ export const ImportHub: React.FC<ImportHubProps> = ({
     }
   };
 
-  const handleExtractFromUrl = async () => {
-    const textToProcess = transcriptText.trim() || scrapedMeta?.title || '';
+  const handleExtractFromUrl = async (fromTitleOnly = false) => {
+    const hasText = transcriptText.trim().length > 0;
+    const textToProcess = hasText ? transcriptText.trim() : (scrapedMeta?.title || '');
+
     if (!textToProcess) {
-      setUrlError('Por favor, introduce o pega la transcripción o descripción de la receta.');
+      setUrlError('Introduce un enlace de vídeo o pega el texto de la receta.');
       return;
     }
 
@@ -97,6 +99,7 @@ export const ImportHub: React.FC<ImportHubProps> = ({
       const structured = await aiService.extractRecipe(textToProcess, {
         title: scrapedMeta?.title,
         originUrl: scrapedMeta?.canonicalUrl,
+        generateFromTitleIfEmpty: !hasText || fromTitleOnly,
       });
 
       // Prepare recipe for review and editing in RecipeForm
@@ -106,8 +109,8 @@ export const ImportHub: React.FC<ImportHubProps> = ({
         categoryId: structured.categoryId || categories[0]?.id || 'otros',
         subcategory: structured.subcategory,
         mainPhoto: scrapedMeta?.thumbnailBase64 || scrapedMeta?.thumbnailUrl,
-        prepTimeMinutes: structured.prepTimeMinutes,
-        cookTimeMinutes: structured.cookTimeMinutes,
+        prepTimeMinutes: structured.prepTimeMinutes || 20,
+        cookTimeMinutes: structured.cookTimeMinutes || 30,
         servings: structured.servings || 4,
         difficulty: structured.difficulty || 'fácil',
         tags: structured.tags || [],
@@ -120,18 +123,16 @@ export const ImportHub: React.FC<ImportHubProps> = ({
           addedAt: new Date().toISOString(),
           status: 'available',
         },
-        ingredients: structured.ingredients.map((ing, idx) => ({
-          ...ing,
-          id: 'ing-imp-' + idx,
-        })),
-        steps: structured.steps.map((st, idx) => ({
-          ...st,
-          id: 'step-imp-' + idx,
-        })),
-        personalNotes: structured.personalNotes,
+        ingredients: (structured.ingredients && structured.ingredients.length > 0)
+          ? structured.ingredients.map((ing, idx) => ({ ...ing, id: 'ing-imp-' + idx }))
+          : [{ id: 'ing-imp-0', name: 'Completar ingrediente', amount: '', unit: '', notes: '' }],
+        steps: (structured.steps && structured.steps.length > 0)
+          ? structured.steps.map((st, idx) => ({ ...st, id: 'step-imp-' + idx }))
+          : [{ id: 'step-imp-0', stepNumber: 1, instruction: 'Completar paso de elaboración' }],
+        personalNotes: structured.personalNotes || (!hasText ? 'Propuesta generada a partir del título del vídeo. Ajusta los ingredientes y pasos a tu gusto.' : undefined),
       });
     } catch (err: any) {
-      setUrlError('Error al estructurar receta: ' + (err.message || 'error desconocido'));
+      setUrlError('Error al estructurar receta con el asistente: ' + (err.message || 'error desconocido'));
     } finally {
       setIsExtracting(false);
     }
@@ -389,17 +390,28 @@ export const ImportHub: React.FC<ImportHubProps> = ({
                 </div>
 
                 <textarea
-                  rows={6}
+                  rows={5}
                   value={transcriptText}
                   onChange={(e) => setTranscriptText(e.target.value)}
-                  placeholder="Pega aquí la transcripción de YouTube, la lista de ingredientes del post o las instrucciones del chef..."
+                  placeholder="Pega aquí la descripción o la transcripción de YouTube con los ingredientes..."
                   className="w-full p-3 text-xs sm:text-sm rounded-xl border border-neutral-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-hidden"
                 />
               </div>
 
+              {!transcriptText.trim() && scrapedMeta?.title && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
+                  <p className="font-semibold flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-600" /> ¿No tienes la transcripción a mano?
+                  </p>
+                  <p className="text-[11px] text-amber-800/90 mt-0.5">
+                    Puedes pulsar abajo y la IA de Gemini propondrá los ingredientes y pasos tradicionales para <strong>"{scrapedMeta.title}"</strong>.
+                  </p>
+                </div>
+              )}
+
               <button
                 type="button"
-                onClick={handleExtractFromUrl}
+                onClick={() => handleExtractFromUrl(false)}
                 disabled={isExtracting || (!transcriptText.trim() && !scrapedMeta?.title)}
                 className="w-full py-3.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-sm rounded-2xl shadow-md transition active:scale-95 flex items-center justify-center gap-2"
               >
@@ -411,7 +423,11 @@ export const ImportHub: React.FC<ImportHubProps> = ({
                 ) : (
                   <>
                     <Sparkles className="w-5 h-5" />
-                    <span>Estructurar y Revisar Receta</span>
+                    <span>
+                      {transcriptText.trim()
+                        ? 'Estructurar receta a partir del texto pegado'
+                        : 'Generar receta sugerida con IA por el título'}
+                    </span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
