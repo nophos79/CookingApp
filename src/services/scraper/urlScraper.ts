@@ -75,17 +75,35 @@ export async function scrapeUrlMetadata(inputUrl: string): Promise<ScrapedUrlMet
         result.thumbnailBase64 = b64;
       }
 
-      // Fetch public oEmbed data for title and author (YouTube supports oEmbed without API key)
+      // Fetch public oEmbed data for title and author
+      // 1. Try noembed.com first because it supports CORS (Access-Control-Allow-Origin: *) in all browsers
       try {
-        const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
-        const res = await fetch(oembedUrl);
+        const noembedUrl = `https://noembed.com/embed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}`;
+        const res = await fetch(noembedUrl);
         if (res.ok) {
           const data = await res.json();
-          result.title = data.title;
-          result.author = data.author_name;
+          if (data && data.title && !data.error) {
+            result.title = data.title;
+            result.author = data.author_name;
+          }
         }
-      } catch (err) {
-        console.warn('oEmbed de YouTube no disponible directamente en navegador:', err);
+      } catch (e) {
+        console.warn('noembed falló, probando oembed directo:', e);
+      }
+
+      // 2. Fallback to direct YouTube oembed
+      if (!result.title) {
+        try {
+          const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+          const res = await fetch(oembedUrl);
+          if (res.ok) {
+            const data = await res.json();
+            result.title = data.title;
+            result.author = data.author_name;
+          }
+        } catch (err) {
+          console.warn('oEmbed directo de YouTube no disponible (CORS):', err);
+        }
       }
     }
   } else if (platform === 'instagram') {

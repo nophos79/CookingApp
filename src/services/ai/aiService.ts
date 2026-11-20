@@ -8,11 +8,17 @@ export const aiService = {
   getSettings(): AISettings {
     try {
       const stored = localStorage.getItem(SETTINGS_KEY);
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const parsed: AISettings = JSON.parse(stored);
+        // If a valid Gemini key is present, default provider to gemini
+        if (parsed.geminiApiKey?.trim() && !parsed.provider) {
+          parsed.provider = 'gemini';
+        }
+        return parsed;
+      }
     } catch (e) {
       console.warn('Error al leer configuración de IA:', e);
     }
-    // Default provider is 100% free local heuristics without any API key!
     return {
       provider: 'heuristic',
     };
@@ -24,24 +30,29 @@ export const aiService = {
 
   async extractRecipe(
     rawText: string,
-    context?: { title?: string; originUrl?: string; generateFromTitleIfEmpty?: boolean }
+    context?: { title?: string; originUrl?: string; author?: string; generateFromTitleIfEmpty?: boolean }
   ): Promise<ExtractedRecipeData> {
     const settings = this.getSettings();
+    const hasKey = !!settings.geminiApiKey?.trim();
 
-    // 1. If user configured Gemini and has an API Key
-    if (settings.provider === 'gemini' && settings.geminiApiKey?.trim()) {
-      try {
-        return await extractWithGemini(rawText, settings.geminiApiKey.trim(), context);
-      } catch (err: any) {
-        console.warn('Fallo en Gemini, recurriendo al extractor heurístico:', err);
-        // Seamless fallback to heuristic parser if API fails or quota exceeded
-        const fallback = parseRecipeHeuristic(rawText, context);
-        fallback.confidenceNotes = `Nota: La llamada a Gemini falló (${err.message}). Se usó el extractor local sin coste.`;
-        return fallback;
+    // 1. If Gemini is selected OR an API key is available, use Gemini
+    if (settings.provider === 'gemini' || hasKey) {
+      if (!hasKey) {
+        throw new Error(
+          'Has seleccionado el motor Gemini pero no has introducido tu clave API. Configúrala en Ajustes (icono de engranaje).'
+        );
       }
+      return await extractWithGemini(rawText, settings.geminiApiKey!.trim(), context);
     }
 
-    // 2. Default: 100% free local heuristic parser
+    // 2. Local heuristic parser fallback
+    const hasText = !!rawText && rawText.trim().length > 25 && rawText !== context?.originUrl;
+    if (!hasText) {
+      throw new Error(
+        'Para extraer automáticamente a partir de un enlace de YouTube necesitas configurar tu clave gratuita de Gemini en Ajustes (icono ⚙ arriba a la derecha). Alternativamente, puedes pegar la transcripción o notas en el desplegable.'
+      );
+    }
+
     return parseRecipeHeuristic(rawText, context);
   },
 };

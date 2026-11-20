@@ -99,7 +99,8 @@ export const ImportHub: React.FC<ImportHubProps> = ({
     }
 
     const hasText = transcriptText.trim().length > 0;
-    const textToProcess = hasText ? transcriptText.trim() : (currentMeta?.title || urlInput.trim());
+    const title = currentMeta?.title?.trim() || '';
+    const textToProcess = hasText ? transcriptText.trim() : (title || urlInput.trim());
 
     if (!urlInput.trim() && !hasText) {
       setUrlError('Introduce un enlace de YouTube o receta web.');
@@ -111,14 +112,15 @@ export const ImportHub: React.FC<ImportHubProps> = ({
 
     try {
       const structured = await aiService.extractRecipe(textToProcess, {
-        title: currentMeta?.title,
+        title: title || undefined,
         originUrl: currentMeta?.canonicalUrl || urlInput.trim(),
+        author: currentMeta?.author,
         generateFromTitleIfEmpty: !hasText,
       });
 
       // Prepare recipe for review and editing in RecipeForm
       onReviewImportedRecipe({
-        name: structured.name || currentMeta?.title || 'Receta importada',
+        name: structured.name || title || 'Receta importada',
         description: structured.description || '',
         categoryId: structured.categoryId || categories[0]?.id || 'otros',
         subcategory: structured.subcategory,
@@ -143,7 +145,7 @@ export const ImportHub: React.FC<ImportHubProps> = ({
         steps: (structured.steps && structured.steps.length > 0)
           ? structured.steps.map((st, idx) => ({ ...st, id: 'step-imp-' + idx }))
           : [{ id: 'step-imp-0', stepNumber: 1, instruction: 'Completar paso de elaboración' }],
-        personalNotes: structured.personalNotes || (!hasText ? 'Receta extraída e investigada automáticamente con IA a partir del enlace. Revisa las cantidades y pasos.' : undefined),
+        personalNotes: structured.personalNotes || (!hasText ? 'Receta formulada e investigada automáticamente con IA a partir del enlace. Revisa las cantidades y pasos a tu gusto.' : undefined),
       });
     } catch (err: any) {
       setUrlError('Error al estructurar receta con el asistente: ' + (err.message || 'error desconocido'));
@@ -333,9 +335,21 @@ export const ImportHub: React.FC<ImportHubProps> = ({
               </div>
 
               {urlError && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-xs text-red-700">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{urlError}</span>
+                <div className="p-3.5 bg-red-50 border border-red-200 rounded-2xl flex items-start gap-2.5 text-xs text-red-700">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
+                  <div className="flex-1 space-y-2">
+                    <p>{urlError}</p>
+                    {(urlError.includes('Ajustes') || urlError.includes('clave') || urlError.includes('Gemini')) && (
+                      <button
+                        type="button"
+                        onClick={() => setShowSettingsModal(true)}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-xl transition shadow-2xs"
+                      >
+                        <Settings className="w-3.5 h-3.5" />
+                        <span>Abrir Ajustes de Gemini</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -373,11 +387,18 @@ export const ImportHub: React.FC<ImportHubProps> = ({
                       <Video className="w-3.5 h-3.5" />
                       <span>{scrapedMeta.platform}</span>
                     </div>
-                    <p className="text-xs font-bold text-neutral-900 truncate mt-0.5">
-                      {scrapedMeta.title || 'Vídeo detectado'}
-                    </p>
+                    <label className="block text-[11px] text-neutral-500 mt-1 font-medium">
+                      Nombre del plato / Título:
+                    </label>
+                    <input
+                      type="text"
+                      value={scrapedMeta.title || ''}
+                      onChange={(e) => setScrapedMeta({ ...scrapedMeta, title: e.target.value })}
+                      placeholder="Título o nombre del plato (ej: Tortilla de patatas)"
+                      className="w-full text-xs font-bold px-2.5 py-1.5 mt-0.5 bg-white border border-amber-300 rounded-lg text-neutral-900 focus:outline-amber-500"
+                    />
                     {scrapedMeta.author && (
-                      <p className="text-[11px] text-neutral-500">Canal: {scrapedMeta.author}</p>
+                      <p className="text-[11px] text-neutral-500 mt-1">Canal: {scrapedMeta.author}</p>
                     )}
                   </div>
                 </div>

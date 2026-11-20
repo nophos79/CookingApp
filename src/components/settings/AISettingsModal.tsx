@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { X, Sparkles, Key, Check, ShieldCheck, ExternalLink, Cpu } from 'lucide-react';
+import { X, Sparkles, Key, Check, ShieldCheck, ExternalLink, Cpu, Loader2, AlertCircle } from 'lucide-react';
 import { aiService } from '../../services/ai/aiService';
 import type { AIProviderType, AISettings } from '../../services/ai/aiTypes';
+import { testGeminiApiKey } from '../../services/ai/geminiProvider';
 
 interface AISettingsModalProps {
   isOpen: boolean;
@@ -10,17 +11,40 @@ interface AISettingsModalProps {
 
 export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClose }) => {
   const currentSettings = aiService.getSettings();
-  const [provider, setProvider] = useState<AIProviderType>(currentSettings.provider || 'heuristic');
+  const [provider, setProvider] = useState<AIProviderType>(
+    currentSettings.geminiApiKey?.trim() ? 'gemini' : (currentSettings.provider || 'heuristic')
+  );
   const [geminiApiKey, setGeminiApiKey] = useState(currentSettings.geminiApiKey || '');
   const [isSaved, setIsSaved] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   if (!isOpen) return null;
 
+  const handleTestKey = async () => {
+    if (!geminiApiKey.trim()) {
+      setTestResult({ ok: false, message: 'Introduce una clave API para probar.' });
+      return;
+    }
+    setIsTesting(true);
+    setTestResult(null);
+    try {
+      await testGeminiApiKey(geminiApiKey.trim());
+      setTestResult({ ok: true, message: '¡Conexión con Gemini verificada con éxito!' });
+      setProvider('gemini');
+    } catch (err: any) {
+      setTestResult({ ok: false, message: 'Error de validación: ' + (err.message || 'clave inválida') });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanKey = geminiApiKey.trim();
     const newSettings: AISettings = {
-      provider,
-      geminiApiKey: geminiApiKey.trim() || undefined,
+      provider: cleanKey ? 'gemini' : provider,
+      geminiApiKey: cleanKey || undefined,
     };
     aiService.saveSettings(newSettings);
     setIsSaved(true);
@@ -80,7 +104,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                   <span>Reglas locales (Sin IA ni claves)</span>
                 </div>
                 <p className="text-[11px] text-neutral-500 mt-0.5">
-                  100% gratuito, privado y sin internet. Analiza ingredientes y pasos usando algoritmos en el navegador.
+                  100% gratuito y sin internet. Adecuado para estructurar texto pegado o fotografías escaneadas. No apto para investigar enlaces de vídeo sin texto.
                 </p>
               </div>
             </label>
@@ -106,14 +130,14 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                   <span>Google Gemini 1.5 Flash (Recomendado)</span>
                 </div>
                 <p className="text-[11px] text-neutral-500 mt-0.5">
-                  Comprensión contextual avanzada. Puedes usar una clave API personal gratuita de Google AI Studio.
+                  Estructuración inteligente y extracción automática de ingredientes y pasos a partir de enlaces de YouTube o recetas web.
                 </p>
               </div>
             </label>
           </div>
 
           {/* Gemini API Key input (if Gemini selected) */}
-          {provider === 'gemini' && (
+          {(provider === 'gemini' || !!geminiApiKey) && (
             <div className="p-3.5 bg-neutral-50 rounded-2xl border border-neutral-200 space-y-2 animate-in fade-in">
               <label className="block text-xs font-semibold text-neutral-700 flex items-center justify-between">
                 <span className="flex items-center gap-1">
@@ -130,13 +154,47 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                 </a>
               </label>
 
-              <input
-                type="password"
-                value={geminiApiKey}
-                onChange={(e) => setGeminiApiKey(e.target.value)}
-                placeholder="AIzaSy..."
-                className="w-full px-3 py-2 text-xs bg-white rounded-xl border border-neutral-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-hidden font-mono"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={geminiApiKey}
+                  onChange={(e) => {
+                    setGeminiApiKey(e.target.value);
+                    if (e.target.value.trim()) {
+                      setProvider('gemini');
+                    }
+                    setTestResult(null);
+                  }}
+                  placeholder="AIzaSy..."
+                  className="flex-1 px-3 py-2 text-xs bg-white rounded-xl border border-neutral-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-hidden font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={handleTestKey}
+                  disabled={isTesting || !geminiApiKey.trim()}
+                  className="px-3 py-2 bg-neutral-200 hover:bg-neutral-300 disabled:opacity-40 text-neutral-800 text-xs font-semibold rounded-xl transition flex items-center gap-1 shrink-0"
+                >
+                  {isTesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                  <span>Probar</span>
+                </button>
+              </div>
+
+              {testResult && (
+                <div
+                  className={`p-2.5 rounded-xl text-xs flex items-center gap-1.5 ${
+                    testResult.ok
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : 'bg-red-50 text-red-700 border border-red-200'
+                  }`}
+                >
+                  {testResult.ok ? (
+                    <Check className="w-4 h-4 shrink-0 text-emerald-600" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                  )}
+                  <span>{testResult.message}</span>
+                </div>
+              )}
 
               <div className="flex items-start gap-1.5 text-[11px] text-neutral-500 pt-1">
                 <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
