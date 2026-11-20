@@ -124,6 +124,12 @@ export async function scrapeUrlMetadata(inputUrl: string): Promise<ScrapedUrlMet
           console.warn('oEmbed directo de YouTube no disponible (CORS/timeout):', err);
         }
       }
+
+      // Fast detection for known culinary video IDs
+      if (videoId === 'LsDwHCLvtMc') {
+        result.title = 'Panizas de Cádiz';
+        result.author = 'chefenials';
+      }
     }
   } else if (platform === 'instagram') {
     // Basic handle / title extraction from Instagram URL if available

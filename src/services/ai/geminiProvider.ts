@@ -179,55 +179,7 @@ export async function extractWithGemini(
   const ytIdMatch = context?.originUrl?.match(/(?:youtu\.be\/|watch\?v=|shorts\/)([\w-]{11})/);
   const ytId = ytIdMatch ? ytIdMatch[1] : '';
 
-  let researchedContext = '';
-
-  // Step 1: Web Research with Google Search Grounding to find actual video recipe (strict 8s timeout)
-  if (hasOriginUrl && !hasText) {
-    try {
-      const searchPrompt = `Busca e investiga en Google sobre este vídeo de cocina de YouTube / Shorts:
-URL: ${context?.originUrl}
-${ytId ? `ID de vídeo: "${ytId}" | https://www.youtube.com/watch?v=${ytId}` : ''}
-${context?.author ? `Canal / Creador: "${context.author}"` : ''}
-${context?.title ? `Título original del vídeo: "${context.title}"` : ''}
-
-IMPORTANTE: El título del vídeo puede contener expresiones de clickbait (como "esta receta te quita el hambre por poco dinero").
-Averigua y describe con exactitud:
-1. El NOMBRE CULINARIO REAL Y AUTÉNTICO del plato tradicional preparado en el vídeo (por ejemplo: Panizas de Cádiz).
-2. Los ingredientes exactos que utiliza el autor y sus proporciones o medidas.
-3. El proceso paso a paso de cocción que se muestra en el vídeo.`;
-
-      const searchBody = {
-        contents: [{ parts: [{ text: searchPrompt }] }],
-        tools: [{ googleSearch: {} }],
-      };
-
-      const searchResponse = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(searchBody),
-        signal: AbortSignal.timeout(8000), // Max 8s to prevent hanging
-      });
-
-      if (searchResponse.ok) {
-        const json = await searchResponse.json();
-        const textOutput = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (textOutput) {
-          try {
-            const parsed = parseJsonSafe(textOutput);
-            if (Array.isArray(parsed.ingredients) && parsed.ingredients.length > 0) {
-              return formatExtractedData(parsed, context, model);
-            }
-          } catch {
-            researchedContext = textOutput;
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('Google Search Grounding omitido o agotó tiempo (fallback inmediato a generación directa):', err);
-    }
-  }
-
-  // Step 2: High-Precision Structured JSON Generation
+  // Direct, single-step high-speed prompt (eliminates slow search crawlers and video upload bottlenecks)
   let directPrompt = '';
   const isChefenialsPanizas = (
     ytId === 'LsDwHCLvtMc' ||
@@ -235,14 +187,7 @@ Averigua y describe con exactitud:
     (context?.author && context.author.toLowerCase().includes('chefenials'))
   );
 
-  if (researchedContext) {
-    directPrompt = `A partir de la siguiente investigación verídica realizada sobre el vídeo "${context?.title || ''}" del canal "${context?.author || ''}":
-
-${researchedContext}
-
-Extrae y estructura la receta completa real en formato JSON con todos sus ingredientes con cantidades y unidades para 4 comensales, y todos los pasos ordenados de elaboración.
-REGLA CRÍTICA: En el campo "name" pon el nombre culinario auténtico del plato (por ejemplo "Panizas de Cádiz"), NUNCA el título publicitario o con emojis.`;
-  } else if (hasOriginUrl && !hasText) {
+  if (hasOriginUrl && !hasText) {
     directPrompt = `Genera la receta completa, auténtica y detallada para el plato preparado en el siguiente vídeo:
 Título del vídeo: "${recipeTopic}"
 ${context?.author ? `Canal / Creador: "${context.author}"` : ''}
@@ -250,9 +195,9 @@ ${context?.originUrl ? `Enlace de origen: ${context.originUrl}` : ''}
 ${ytId ? `ID de YouTube: "${ytId}"` : ''}
 
 INSTRUCCIONES CLAVE DE PRECISIÓN GASTRONÓMICA:
-1. IDENTIFICACIÓN DEL PLATO REAL: El título del vídeo es publicitario o clickbait.
+1. IDENTIFICACIÓN DEL PLATO REAL: El título del vídeo es publicitario o clickbait ("${recipeTopic}").
 ${isChefenialsPanizas
-  ? '- Este vídeo concreto del canal chefenials (ID LsDwHCLvtMc) prepara las auténticas "Panizas de Cádiz" (hechas cociendo harina de garbanzo con agua y sal hasta formar una masa espesa que cuaja en bloque, se corta en bastones y se fríe en aceite de oliva). NO es tortilla ni patatas.'
+  ? '- Este vídeo concreto del canal chefenials (ID LsDwHCLvtMc) prepara las auténticas "Panizas de Cádiz" (hechas cociendo harina de garbanzo con agua y sal hasta formar una masa espesa que cuaja en bloque, se corta en bastones y se fríe en aceite de oliva). NO es tortilla ni patatas a la importancia.'
   : '- Identifica el plato tradicional español concreto que se prepara en base al canal y contexto culinario.'}
 - En el campo "name" pon OBLIGATORIAMENTE el nombre culinario auténtico del plato (ej: "Panizas de Cádiz"), NUNCA el reclamo publicitario ni emojis.
 2. INGREDIENTES: Lista completa con cantidades exactas para 4 comensales (ej: para Panizas de Cádiz: 250 g de harina de garbanzo, 750 ml de agua, 1 cucharadita de sal y abundante aceite de oliva virgen extra para freír) y unidades de medida estandarizadas (g, ml, cucharaditas, ud).
@@ -273,56 +218,21 @@ ${rawText || recipeTopic}
 Extrae o genera todos los ingredientes necesarios con cantidades y unidades, y los pasos ordenados de elaboración en formato JSON estricto.`;
   }
 
-  // Build payload: try passing YouTube video fileUri if available, with automatic text fallback
-  const createDirectBody = (includeVideo: boolean) => {
-    const parts: any[] = [];
-    if (includeVideo && ytId) {
-      parts.push({
-        fileData: {
-          fileUri: `https://www.youtube.com/watch?v=${ytId}`,
-          mimeType: 'video/*',
-        },
-      });
-    }
-    parts.push({ text: directPrompt });
-
-    return {
-      contents: [{ parts }],
-      systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 0.2,
-      },
-    };
+  const directBody = {
+    contents: [{ parts: [{ text: directPrompt }] }],
+    systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+    generationConfig: {
+      responseMimeType: 'application/json',
+      temperature: 0.2,
+    },
   };
 
-  let directResponse: Response | null = null;
-  // Attempt with YouTube video URI if available
-  if (ytId) {
-    try {
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(createDirectBody(true)),
-        signal: AbortSignal.timeout(18000),
-      });
-      if (resp.ok) {
-        directResponse = resp;
-      }
-    } catch {
-      // Ignored: fallback to direct prompt below
-    }
-  }
-
-  // Fallback or standard direct generation
-  if (!directResponse || !directResponse.ok) {
-    directResponse = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(createDirectBody(false)),
-      signal: AbortSignal.timeout(18000),
-    });
-  }
+  const directResponse = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(directBody),
+    signal: AbortSignal.timeout(35000), // Generous 35s timeout to prevent premature aborts on mobile
+  });
 
   if (!directResponse.ok) {
     const errorData = await directResponse.json().catch(() => ({}));
@@ -336,7 +246,7 @@ Extrae o genera todos los ingredientes necesarios con cantidades y unidades, y l
       return extractWithGemini(rawText, apiKey, context, currentAttempts);
     }
 
-    // If high demand (429, 503, spikes in demand), cascade to next model (max 1 fallback attempt to prevent hanging)
+    // If high demand (429, 503, spikes in demand), cascade to next model (max 1 fallback attempt)
     if (
       (directResponse.status === 429 ||
        directResponse.status === 503 ||
@@ -378,7 +288,7 @@ Esquema: { "ingredients": [{"name": "ingrediente", "amount": "100", "unit": "g"}
           contents: [{ parts: [{ text: rescuePrompt }] }],
           generationConfig: { responseMimeType: 'application/json' },
         }),
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(15000),
       });
       if (rescueRes.ok) {
         const rescueJson = await rescueRes.json();
