@@ -10,6 +10,7 @@ import {
   Settings,
   HelpCircle,
   Video,
+  Upload,
 } from 'lucide-react';
 import type { Category, Recipe } from '../../types/recipe';
 import { scrapeUrlMetadata, type ScrapedUrlMetadata } from '../../services/scraper/urlScraper';
@@ -159,24 +160,59 @@ export const ImportHub: React.FC<ImportHubProps> = ({
   };
 
   // 2. Photo & OCR Handlers
-  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  const [isDraggingPhotos, setIsDraggingPhotos] = useState(false);
+
+  const processPhotoFiles = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
 
     setPhotoError('');
     try {
       const compressedList: string[] = [];
       for (let i = 0; i < files.length; i++) {
-        const base64 = await processAndCompressImage(files[i], {
+        const file = files[i];
+        if (!file.type.startsWith('image/')) continue;
+        const base64 = await processAndCompressImage(file, {
           maxWidth: 1600,
           maxHeight: 1600,
           quality: 0.85,
         });
         compressedList.push(base64);
       }
+      if (compressedList.length === 0) {
+        setPhotoError('Por favor, selecciona o arrastra archivos de imagen válidos (JPG, PNG, WebP).');
+        return;
+      }
       setSelectedPhotos((prev) => [...prev, ...compressedList]);
     } catch (err: any) {
-      setPhotoError('Error al cargar fotografía: ' + (err.message || 'error desconocido'));
+      setPhotoError('Error al procesar fotografía: ' + (err.message || 'error desconocido'));
+    }
+  };
+
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      await processPhotoFiles(e.target.files);
+      e.target.value = '';
+    }
+  };
+
+  const handleDragOverPhotos = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingPhotos(true);
+  };
+
+  const handleDragLeavePhotos = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingPhotos(false);
+  };
+
+  const handleDropPhotos = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingPhotos(false);
+    if (e.dataTransfer.files) {
+      await processPhotoFiles(e.dataTransfer.files);
     }
   };
 
@@ -497,31 +533,57 @@ export const ImportHub: React.FC<ImportHubProps> = ({
                 </div>
               )}
 
-              {/* Photo Upload Area */}
-              <div className="space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  {selectedPhotos.map((photo, idx) => (
-                    <div key={idx} className="relative w-24 h-24 rounded-2xl overflow-hidden border border-neutral-200 shadow-xs">
-                      <img src={photo} alt={`Foto ${idx + 1}`} className="w-full h-full object-cover" />
+              {/* Photo Upload Area with Drag & Drop */}
+              <div
+                onDragOver={handleDragOverPhotos}
+                onDragEnter={handleDragOverPhotos}
+                onDragLeave={handleDragLeavePhotos}
+                onDrop={handleDropPhotos}
+                className={`p-4 rounded-3xl border-2 border-dashed transition-all ${
+                  isDraggingPhotos
+                    ? 'border-amber-500 bg-amber-100/70 ring-4 ring-amber-400/30'
+                    : 'border-neutral-200 bg-neutral-50/50 hover:border-amber-300'
+                }`}
+              >
+                {isDraggingPhotos ? (
+                  <div className="py-6 flex flex-col items-center justify-center text-amber-800 animate-in fade-in zoom-in-95 pointer-events-none">
+                    <div className="w-12 h-12 rounded-full bg-amber-200/80 text-amber-800 flex items-center justify-center mb-2 shadow-inner">
+                      <Upload className="w-6 h-6 animate-bounce" />
+                    </div>
+                    <span className="text-sm font-bold">¡Suelta las fotos aquí!</span>
+                    <span className="text-xs text-amber-700/80 mt-0.5">Se optimizarán para el OCR</span>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap gap-2">
+                      {selectedPhotos.map((photo, idx) => (
+                        <div key={idx} className="relative w-24 h-24 rounded-2xl overflow-hidden border border-neutral-200 shadow-xs">
+                          <img src={photo} alt={`Foto ${idx + 1}`} className="w-full h-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPhotos(selectedPhotos.filter((_, i) => i !== idx))}
+                            className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white text-xs flex items-center justify-center shadow-xs"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      ))}
+
                       <button
                         type="button"
-                        onClick={() => setSelectedPhotos(selectedPhotos.filter((_, i) => i !== idx))}
-                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white text-xs flex items-center justify-center"
+                        onClick={() => photoInputRef.current?.click()}
+                        className="w-24 h-24 rounded-2xl border-2 border-dashed border-amber-300 hover:border-amber-500 bg-amber-50/50 flex flex-col items-center justify-center text-amber-700 text-xs font-semibold p-2 transition cursor-pointer"
                       >
-                        &times;
+                        <Camera className="w-6 h-6 mb-1 text-amber-600" />
+                        <span>Añadir foto</span>
                       </button>
                     </div>
-                  ))}
 
-                  <button
-                    type="button"
-                    onClick={() => photoInputRef.current?.click()}
-                    className="w-24 h-24 rounded-2xl border-2 border-dashed border-amber-300 hover:border-amber-500 bg-amber-50/50 flex flex-col items-center justify-center text-amber-700 text-xs font-semibold p-2 transition"
-                  >
-                    <Camera className="w-6 h-6 mb-1 text-amber-600" />
-                    <span>Añadir foto</span>
-                  </button>
-                </div>
+                    <p className="text-[11px] text-neutral-400 flex items-center gap-1">
+                      <span>Haz clic en "Añadir foto" o arrastra y suelta aquí tus imágenes desde el ordenador o explorador.</span>
+                    </p>
+                  </div>
+                )}
 
                 <input
                   ref={photoInputRef}

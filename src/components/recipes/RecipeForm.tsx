@@ -79,12 +79,15 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
   // Status
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
 
-  // Handle Photo Upload
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  // Process a selected or dropped image file
+  const processPhotoFile = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setErrorMsg('Por favor, selecciona o arrastra un archivo de imagen válido (JPG, PNG, WebP).');
+      return;
+    }
+    setErrorMsg('');
     try {
       const compressedBase64 = await processAndCompressImage(file, {
         maxWidth: 1200,
@@ -94,6 +97,37 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
       setMainPhoto(compressedBase64);
     } catch (err: any) {
       setErrorMsg('No se pudo procesar la fotografía: ' + (err.message || 'error desconocido'));
+    }
+  };
+
+  // Handle Photo Upload via File Input
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processPhotoFile(file);
+    e.target.value = '';
+  };
+
+  // Handle Drag & Drop for Photo
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingPhoto(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingPhoto(false);
+  };
+
+  const handleDropPhoto = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingPhoto(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      await processPhotoFile(file);
     }
   };
 
@@ -269,13 +303,33 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
           </div>
         )}
 
-        {/* 1. Main Photo Picker */}
+        {/* 1. Main Photo Picker with Drag & Drop */}
         <div className="space-y-2">
           <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider">
             Fotografía del plato
           </label>
-          <div className="relative aspect-16/9 w-full bg-neutral-100 rounded-3xl border-2 border-dashed border-neutral-300 overflow-hidden flex flex-col items-center justify-center group">
-            {mainPhoto ? (
+          <div
+            onDragOver={handleDragOver}
+            onDragEnter={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDropPhoto}
+            className={`relative aspect-16/9 w-full rounded-3xl border-2 border-dashed overflow-hidden flex flex-col items-center justify-center transition-all ${
+              isDraggingPhoto
+                ? 'border-amber-500 bg-amber-100/70 ring-4 ring-amber-400/30 scale-[1.01]'
+                : mainPhoto
+                ? 'border-neutral-300 bg-neutral-100 group'
+                : 'border-neutral-300 hover:border-amber-400 bg-neutral-100/80 hover:bg-amber-50/30'
+            }`}
+          >
+            {isDraggingPhoto ? (
+              <div className="flex flex-col items-center justify-center p-6 text-amber-800 animate-in fade-in zoom-in-95 pointer-events-none">
+                <div className="w-14 h-14 rounded-full bg-amber-200/80 text-amber-800 flex items-center justify-center mb-2 shadow-inner">
+                  <Upload className="w-7 h-7 animate-bounce" />
+                </div>
+                <span className="text-base font-bold">¡Suelta la imagen aquí!</span>
+                <span className="text-xs text-amber-700/80 mt-0.5">Se optimizará y guardará automáticamente</span>
+              </div>
+            ) : mainPhoto ? (
               <>
                 <img
                   src={mainPhoto}
@@ -286,30 +340,39 @@ export const RecipeForm: React.FC<RecipeFormProps> = ({
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="p-2.5 rounded-full bg-white text-neutral-800 shadow-md hover:bg-neutral-100 transition"
+                    title="Cambiar fotografía"
+                    className="p-2.5 rounded-full bg-white text-neutral-800 shadow-md hover:bg-neutral-100 transition active:scale-95"
                   >
                     <Upload className="w-5 h-5" />
                   </button>
                   <button
                     type="button"
                     onClick={() => setMainPhoto(undefined)}
-                    className="p-2.5 rounded-full bg-red-600 text-white shadow-md hover:bg-red-700 transition"
+                    title="Eliminar fotografía"
+                    className="p-2.5 rounded-full bg-red-600 text-white shadow-md hover:bg-red-700 transition active:scale-95"
                   >
                     <Trash2 className="w-5 h-5" />
                   </button>
                 </div>
+                <span className="absolute bottom-2.5 right-2.5 text-[10px] bg-black/60 text-white/90 px-2 py-0.5 rounded-full backdrop-blur-xs pointer-events-none opacity-0 group-hover:opacity-100 transition">
+                  O arrastra otra foto encima
+                </span>
               </>
             ) : (
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex flex-col items-center justify-center p-6 text-neutral-500 hover:text-amber-700 transition"
+                className="w-full h-full flex flex-col items-center justify-center p-6 text-neutral-500 hover:text-amber-800 transition group cursor-pointer"
               >
-                <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mb-2">
+                <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mb-2 group-hover:scale-110 transition shadow-xs">
                   <Camera className="w-6 h-6" />
                 </div>
-                <span className="text-sm font-semibold">Toma o elige una fotografía</span>
-                <span className="text-xs text-neutral-400 mt-0.5">Se optimiza y almacena localmente</span>
+                <span className="text-sm font-bold text-neutral-800 group-hover:text-amber-800">
+                  Toma, elige o arrastra una fotografía
+                </span>
+                <span className="text-xs text-neutral-400 group-hover:text-amber-700/70 mt-1">
+                  Haz clic para abrir el selector o suelta aquí tu archivo de imagen
+                </span>
               </button>
             )}
 
