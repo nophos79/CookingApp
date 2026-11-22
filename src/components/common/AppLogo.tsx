@@ -5,7 +5,7 @@ interface AppLogoProps {
   size?: number;
 }
 
-export const AppLogo: React.FC<AppLogoProps> = ({ className = 'w-5 h-5', size }) => (
+export const AppLogo: React.FC<AppLogoProps> = ({ className = 'w-7 h-7', size }) => (
   <svg
     viewBox="0 0 100 100"
     fill="none"
@@ -15,18 +15,18 @@ export const AppLogo: React.FC<AppLogoProps> = ({ className = 'w-5 h-5', size })
     height={size}
     aria-hidden="true"
   >
-    {/* House Roof & Chimney */}
+    {/* House Roof & Chimney - Scaled up & bolder */}
     <path
-      d="M22 40L50 19L78 40"
+      d="M12 38L50 12L88 38"
       stroke="currentColor"
-      strokeWidth="6"
+      strokeWidth="6.5"
       strokeLinecap="round"
       strokeLinejoin="round"
     />
     <path
-      d="M68 28V22H74V32"
+      d="M72 24V16H80V30"
       stroke="currentColor"
-      strokeWidth="4"
+      strokeWidth="4.5"
       strokeLinecap="round"
       strokeLinejoin="round"
       opacity="0.9"
@@ -34,41 +34,41 @@ export const AppLogo: React.FC<AppLogoProps> = ({ className = 'w-5 h-5', size })
 
     {/* Steam Waves */}
     <path
-      d="M44 32C44 29.5 46 27.5 46 25"
+      d="M43 27C43 23 46 20 46 16"
       stroke="currentColor"
-      strokeWidth="3"
+      strokeWidth="3.5"
       strokeLinecap="round"
       opacity="0.85"
     />
     <path
-      d="M54 33C54 30.5 56 28.5 56 26"
+      d="M55 28C55 24 58 21 58 17"
       stroke="currentColor"
-      strokeWidth="3"
+      strokeWidth="3.5"
       strokeLinecap="round"
       opacity="0.85"
     />
 
-    {/* Pot Lid */}
+    {/* Pot Lid & Knob */}
     <path
-      d="M31 51C31 46.5 35 44 50 44C65 44 69 46.5 69 51H31Z"
+      d="M24 52C24 45 30 42 50 42C70 42 76 45 76 52H24Z"
       fill="currentColor"
     />
-    <circle cx="50" cy="40.5" r="4" fill="currentColor" />
+    <circle cx="50" cy="37.5" r="4.5" fill="currentColor" />
 
     {/* Pot Body */}
     <path
-      d="M28 54C28 54 30 76 50 76C70 76 72 54 72 54H28Z"
+      d="M20 56C20 56 23 86 50 86C77 86 80 56 80 56H20Z"
       fill="currentColor"
     />
 
     {/* Side Handles */}
     <path
-      d="M23 57C23 55 25 54 28 54V59C25 59 23 58 23 57Z"
+      d="M14 60C14 57 16 56 20 56V63C16 63 14 62 14 60Z"
       fill="currentColor"
       opacity="0.95"
     />
     <path
-      d="M77 57C77 55 75 54 72 54V59C75 59 77 58 77 57Z"
+      d="M86 60C86 57 84 56 80 56V63C84 63 86 62 86 60Z"
       fill="currentColor"
       opacity="0.95"
     />
