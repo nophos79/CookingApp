@@ -8,11 +8,11 @@ import {
   Search,
   Wifi,
   WifiOff,
-  ChefHat,
   Sparkles,
   Archive,
   Cloud,
 } from 'lucide-react';
+import { AppLogo } from '../common/AppLogo';
 
 export type NavTab = 'home' | 'categories' | 'add' | 'favorites' | 'library';
 
@@ -60,8 +60,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             onClick={() => onSelectTab('home')}
             className="flex items-center gap-2 cursor-pointer select-none group"
           >
-            <div className="w-9 h-9 rounded-xl bg-amber-600 text-white flex items-center justify-center shadow-sm shadow-amber-600/30 group-hover:scale-105 transition">
-              <ChefHat className="w-5 h-5" />
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-sm shadow-orange-600/25 group-hover:scale-105 transition">
+              <AppLogo className="w-5 h-5 text-white" />
             </div>
             <div>
               <h1 className="text-base sm:text-lg font-extrabold text-neutral-900 tracking-tight leading-none">

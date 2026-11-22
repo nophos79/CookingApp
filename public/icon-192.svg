@@ -1,5 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
-  <rect width="192" height="192" rx="42" fill="#d97706" />
-  <path d="M96 45c-12 0-22 8-25 18-8 0-16 6-18 14-4 8-2 18 4 24-4 4-6 10-6 16 0 14 12 24 26 24h38c14 0 26-10 26-24 0-6-2-12-6-16 6-6 8-16 4-24-2-8-10-14-18-14-3-10-13-18-25-18z" fill="#ffffff" />
-  <rect x="68" y="125" width="56" height="20" rx="4" fill="#ffffff" opacity="0.9" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="192" height="192">
+  <defs>
+    <linearGradient id="pwaGrad192" x1="0" y1="0" x2="100" y2="100" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F59E0B" />
+      <stop offset="1" stop-color="#EA580C" />
+    </linearGradient>
+  </defs>
+  <!-- Background Squircle -->
+  <rect width="100" height="100" rx="24" fill="url(#pwaGrad192)" />
+  
+  <!-- House Roof & Chimney -->
+  <path d="M22 40L50 19L78 40" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M68 28V22H74V32" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.9" />
+  
+  <!-- Steam Waves -->
+  <path d="M44 32C44 29.5 46 27.5 46 25" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" opacity="0.85" />
+  <path d="M54 33C54 30.5 56 28.5 56 26" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" opacity="0.85" />
+
+  <!-- Dutch Oven / Cocotte Pot -->
+  <!-- Pot Lid -->
+  <path d="M31 51C31 46.5 35 44 50 44C65 44 69 46.5 69 51H31Z" fill="#FFFFFF" />
+  <circle cx="50" cy="40.5" r="3.5" fill="#FFFFFF" />
+  <!-- Pot Body -->
+  <path d="M28 54C28 54 30 76 50 76C70 76 72 54 72 54H28Z" fill="#FFFFFF" />
+  <!-- Side Handles -->
+  <path d="M23 57C23 55 25 54 28 54V59C25 59 23 58 23 57Z" fill="#FFFFFF" opacity="0.95" />
+  <path d="M77 57C77 55 75 54 72 54V59C75 59 77 58 77 57Z" fill="#FFFFFF" opacity="0.95" />
 </svg>
