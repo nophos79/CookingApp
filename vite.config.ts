@@ -11,12 +11,21 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'icon-192.svg', 'icon-512.svg'],
+      includeAssets: [
+        'favicon.svg',
+        'favicon-32x32.png',
+        'favicon-16x16.png',
+        'apple-touch-icon.png',
+        'icon-192.svg',
+        'icon-512.svg',
+        'icon-192.png',
+        'icon-512.png',
+      ],
       manifest: {
         name: 'Mi Recetario',
         short_name: 'Recetario',
         description: 'Tu recetario personal, privado y sin conexión. Cocina cómodamente desde el móvil.',
-        theme_color: '#d97706',
+        theme_color: '#ea580c',
         background_color: '#fafafa',
         display: 'standalone',
         orientation: 'portrait-primary',
@@ -24,6 +33,18 @@ export default defineConfig({
         start_url: '/CookingApp/',
         scope: '/CookingApp/',
         icons: [
+          {
+            src: 'icon-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: 'icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any',
+          },
           {
             src: 'icon-192.svg',
             sizes: '192x192',
