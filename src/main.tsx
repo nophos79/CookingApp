@@ -16,10 +16,11 @@ if ('serviceWorker' in navigator) {
 }
 
 // Auto update PWA when new version is available
-registerSW({
+const updateSW = registerSW({
   immediate: true,
   onNeedRefresh() {
     console.log('Nueva versión disponible, actualizando...');
+    updateSW(true);
   },
   onOfflineReady() {
     console.log('PWA lista para funcionar sin conexión.');
