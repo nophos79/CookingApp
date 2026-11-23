@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Download, X, Smartphone } from 'lucide-react';
+import { Download, X } from 'lucide-react';
+import { AppLogo } from '../common/AppLogo';
 
 export const PwaInstallPrompt: React.FC = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -53,8 +54,8 @@ export const PwaInstallPrompt: React.FC = () => {
   return (
     <div className="fixed bottom-20 md:bottom-6 left-4 right-4 max-w-md mx-auto z-40 bg-neutral-900 text-white p-3.5 rounded-2xl shadow-2xl border border-neutral-700 flex items-center justify-between gap-3 animate-in slide-in-from-bottom duration-300">
       <div className="flex items-center gap-3 min-w-0">
-        <div className="w-10 h-10 rounded-xl bg-amber-600 flex items-center justify-center shrink-0 shadow-sm">
-          <Smartphone className="w-5 h-5 text-white" />
+        <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shrink-0 shadow-sm p-1.5">
+          <AppLogo className="w-full h-full text-white" />
         </div>
         <div className="min-w-0">
           <p className="font-bold text-xs sm:text-sm truncate">Instala Mi Recetario</p>

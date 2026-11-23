@@ -20,8 +20,11 @@ export default defineConfig({
         'icon-512.svg',
         'icon-192.png',
         'icon-512.png',
+        'icon-maskable-192.png',
+        'icon-maskable-512.png',
       ],
       manifest: {
+        id: '/CookingApp/?v=2',
         name: 'Mi Recetario',
         short_name: 'Recetario',
         description: 'Tu recetario personal, privado y sin conexión. Cocina cómodamente desde el móvil.',
@@ -34,28 +37,28 @@ export default defineConfig({
         scope: '/CookingApp/',
         icons: [
           {
-            src: 'icon-192.png',
+            src: 'icon-192.png?v=2',
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any',
           },
           {
-            src: 'icon-512.png',
+            src: 'icon-512.png?v=2',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any',
           },
           {
-            src: 'icon-192.svg',
+            src: 'icon-maskable-192.png?v=2',
             sizes: '192x192',
-            type: 'image/svg+xml',
-            purpose: 'any maskable',
+            type: 'image/png',
+            purpose: 'maskable',
           },
           {
-            src: 'icon-512.svg',
+            src: 'icon-maskable-512.png?v=2',
             sizes: '512x512',
-            type: 'image/svg+xml',
-            purpose: 'any maskable',
+            type: 'image/png',
+            purpose: 'maskable',
           },
         ],
         share_target: {
