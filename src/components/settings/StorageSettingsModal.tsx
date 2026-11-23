@@ -121,6 +121,28 @@ export const StorageSettingsModal: React.FC<StorageSettingsModalProps> = ({
     setStatusMessage({ type: 'success', text: 'Client ID personalizado guardado.' });
   };
 
+  const handleForceCachePurge = async () => {
+    if (window.confirm('¿Deseas vaciar la caché y forzar la actualización de la aplicación? Tus recetas no se borrarán.')) {
+      if ('serviceWorker' in navigator) {
+        try {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          for (const r of regs) {
+            await r.unregister();
+          }
+        } catch {}
+      }
+      if ('caches' in window) {
+        try {
+          const keys = await caches.keys();
+          for (const k of keys) {
+            await caches.delete(k);
+          }
+        } catch {}
+      }
+      window.location.reload();
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
       <div className="bg-white rounded-3xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto space-y-5 shadow-2xl border border-neutral-100 animate-in fade-in zoom-in-95">
@@ -398,6 +420,18 @@ export const StorageSettingsModal: React.FC<StorageSettingsModalProps> = ({
               </form>
             </div>
           </details>
+        </div>
+
+        {/* Troubleshooting / Cache Purge */}
+        <div className="pt-2 border-t border-neutral-100 flex items-center justify-between text-xs">
+          <span className="text-[11px] text-neutral-400">Versión: 2.1 (Icono Cocotte)</span>
+          <button
+            type="button"
+            onClick={handleForceCachePurge}
+            className="text-[11px] text-amber-700 hover:text-amber-800 font-semibold underline"
+          >
+            Vaciar caché y actualizar app
+          </button>
         </div>
 
         {/* Footer */}
