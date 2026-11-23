@@ -5,7 +5,7 @@ import App from './App.tsx'
 import { registerSW } from 'virtual:pwa-register'
 
 // App Build Version identifier for cache invalidation
-const APP_BUILD_VERSION = '2026.11.23-clean-v4';
+const APP_BUILD_VERSION = '2026.11.23-pwa-v2';
 const VERSION_KEY = 'cooking_app_build_version';
 
 try {
