@@ -13,6 +13,11 @@ if ('serviceWorker' in navigator) {
       window.location.reload();
     }
   });
+
+  // Force update check against server on every app launch
+  navigator.serviceWorker.ready.then((reg) => {
+    reg.update().catch(() => {});
+  }).catch(() => {});
 }
 
 // Auto update PWA when new version is available

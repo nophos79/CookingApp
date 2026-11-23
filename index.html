@@ -14,6 +14,11 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="description" content="Mi Recetario - Gestor personal y offline de recetas para cocinar cómodamente desde el móvil." />
     <title>Mi Recetario</title>
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then(function(r) { r.update().catch(function() {}); }).catch(function() {});
+      }
+    </script>
   </head>
   <body class="bg-neutral-50 text-neutral-900">
     <div id="root"></div>
