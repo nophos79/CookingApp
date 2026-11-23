@@ -47,3 +47,6 @@ jobs:
       - name: Desplegar en GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          error_count: 5
+          retry_interval: 10
