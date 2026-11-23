@@ -15,6 +15,7 @@ const SVG_PATHS = `
   <!-- House Roof & Chimney -->
   <path
     d="M12 38L50 12L88 38"
+    fill="none"
     stroke="#FFFFFF"
     stroke-width="6.5"
     stroke-linecap="round"
@@ -22,6 +23,7 @@ const SVG_PATHS = `
   />
   <path
     d="M72 24V16H80V30"
+    fill="none"
     stroke="#FFFFFF"
     stroke-width="4.5"
     stroke-linecap="round"
@@ -32,6 +34,7 @@ const SVG_PATHS = `
   <!-- Steam Waves -->
   <path
     d="M43 27C43 23 46 20 46 16"
+    fill="none"
     stroke="#FFFFFF"
     stroke-width="3.5"
     stroke-linecap="round"
@@ -39,6 +42,7 @@ const SVG_PATHS = `
   />
   <path
     d="M55 28C55 24 58 21 58 17"
+    fill="none"
     stroke="#FFFFFF"
     stroke-width="3.5"
     stroke-linecap="round"
@@ -72,7 +76,7 @@ const SVG_PATHS = `
 `;
 
 // 1. Edge-to-edge square SVG with safe-zone emblem (Android PWA launcher & WebAPK maskable)
-const fullSquareSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512">
+const fullSquareSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512" fill="none">
   ${SVG_DEFS}
   <rect width="100" height="100" fill="url(#brandGrad)" />
   <g transform="translate(50, 50) scale(0.78) translate(-50, -50)">
@@ -81,7 +85,7 @@ const fullSquareSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 
 </svg>`;
 
 // 2. Squircle SVG with rounded corners (Browser favicon & Apple Touch Icon)
-const squircleFaviconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+const squircleFaviconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
   ${SVG_DEFS}
   <rect width="100" height="100" rx="20" fill="url(#brandGrad)" />
   <g transform="translate(50, 50) scale(0.82) translate(-50, -50)">
