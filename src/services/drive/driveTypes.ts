@@ -1,7 +1,7 @@
 export type StorageMode = 'drive-only' | 'hybrid' | 'local-only';
 
 export interface DriveConfig {
-  clientId: string;
+  clientId?: string;
   storageMode: StorageMode;
   userEmail?: string;
   lastSyncTime?: string;

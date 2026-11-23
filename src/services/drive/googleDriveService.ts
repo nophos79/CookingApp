@@ -8,6 +8,10 @@ const DELETED_IDS_STORAGE_KEY = 'mi_recetario_deleted_ids';
 const DRIVE_FILE_NAME = 'mi_recetario_datos.json';
 const DRIVE_FOLDER_NAME = 'Mi Recetario';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file email profile';
+// Default public OAuth Client ID for Mi Recetario
+const DEFAULT_CLIENT_ID =
+  (import.meta.env.VITE_GOOGLE_CLIENT_ID as string) ||
+  '372422791834-4g7v7e8vvg1qhk4qu0d9129gkgp5a41q.apps.googleusercontent.com';
 
 declare global {
   interface Window {
@@ -55,11 +59,23 @@ export const googleDriveService = {
   },
 
   /**
-   * Returns true if user has configured Google Drive (Client ID and logged in userEmail saved)
+   * Resolves the Google Client ID to use: custom config > env variable > built-in default
+   */
+  getClientId(): string {
+    const config = this.getConfig();
+    return (
+      config.clientId?.trim() ||
+      ((import.meta as any).env?.VITE_GOOGLE_CLIENT_ID as string)?.trim() ||
+      DEFAULT_CLIENT_ID
+    );
+  },
+
+  /**
+   * Returns true if user has connected Google Drive (email and valid client ID are present)
    */
   isConnected(): boolean {
     const config = this.getConfig();
-    return !!(config.clientId && config.userEmail);
+    return !!(config.userEmail && this.getClientId());
   },
 
   getDeletedRecipeIds(): string[] {
@@ -156,19 +172,21 @@ export const googleDriveService = {
   /**
    * Request OAuth2 access token using Google Identity Services
    */
-  async login(): Promise<{ token: string; email: string }> {
-    const config = this.getConfig();
-    if (!config.clientId || !config.clientId.trim()) {
-      throw new Error('Debes configurar un Google Client ID antes de iniciar sesión.');
+  async login(emailHint?: string): Promise<{ token: string; email: string }> {
+    const clientId = this.getClientId();
+    if (!clientId) {
+      throw new Error('No se ha configurado un identificador de cliente para Google.');
     }
 
     await this.loadGIS();
 
     return new Promise((resolve, reject) => {
       try {
+        const hint = emailHint?.trim() || this.getConfig().userEmail || undefined;
         const client = window.google.accounts.oauth2.initTokenClient({
-          client_id: config.clientId.trim(),
+          client_id: clientId,
           scope: DRIVE_SCOPE,
+          hint,
           callback: async (response: any) => {
             if (response.error) {
               reject(new Error(response.error_description || response.error));
@@ -178,15 +196,15 @@ export const googleDriveService = {
             const expiresIn = Number(response.expires_in) || 3500;
             this.saveToken(response.access_token, expiresIn);
 
-            // Fetch user email
-            let email = '';
+            // Fetch user email from profile
+            let email = hint || '';
             try {
               const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
                 headers: { Authorization: `Bearer ${response.access_token}` },
               });
               if (userRes.ok) {
                 const userData = await userRes.json();
-                email = userData.email || '';
+                email = userData.email || email;
               }
             } catch (err) {
               console.warn('No se pudo obtener información del perfil:', err);
@@ -197,8 +215,8 @@ export const googleDriveService = {
           },
         });
 
-        // Use prompt: '' so if already consented, Google authorizes silently or smoothly
-        client.requestAccessToken({ prompt: '' });
+        // If email hint was provided, request directly; otherwise prompt account selection
+        client.requestAccessToken({ prompt: hint ? '' : 'select_account' });
       } catch (err: any) {
         reject(err);
       }
