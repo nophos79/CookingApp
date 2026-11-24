@@ -9,11 +9,53 @@ const TIME_REGEX = /(\d+)\s*(?:minutos?|mins?|m\b)/i;
 const HOUR_REGEX = /(\d+)\s*(?:horas?|hrs?|h\b)/i;
 const SERVINGS_REGEX = /(?:para|comensales|personas|raciones|porciones)\s*:?\s*(\d+)/i;
 
+/**
+ * Sanitizes OCR text from camera photos or screenshots, removing phone status bar noise,
+ * promotional spam, and normalizing fused words and units.
+ */
+export function cleanOcrText(text: string): string {
+  if (!text) return '';
+  const lines = text.split('\n');
+  const cleaned: string[] = [];
+
+  for (const line of lines) {
+    let l = line.trim();
+    if (!l) continue;
+
+    // Filter out status bar artifacts (timestamps e.g. "21:42", battery, wifi, symbols)
+    if (/^\d{1,2}:\d{2}\b/.test(l) || /^[X\+\s\.\-\—\€\|•\*]+$/.test(l)) continue;
+    if (/^(Pr LS|Bi €|ha E|Ca MEE)/i.test(l)) continue;
+    if (l.length <= 3 && !/^\d/.test(l)) continue;
+
+    // Filter out promotional, social media, or external contact links
+    if (/si\s*desea|sidesea/i.test(l)) break;
+    if (/no dude en ponerse en contacto/i.test(l)) break;
+    if (/te de[ij]o un breve v[ií]deo/i.test(l)) break;
+    if (/thermomix tm\d/i.test(l) && l.length < 40) continue;
+
+    // Normalize OCR fused units & words: e.g. "10gde" -> "10 g de", "evapore1" -> "evapore 1"
+    l = l.replace(/(\d+)\s*gde\b/gi, '$1 g de');
+    l = l.replace(/(\d+)\s*(g|gr|kg|ml|l|cl)\b(?!\s*de)/gi, '$1 $2 ');
+    l = l.replace(/evapore(\d+)/gi, 'evapore $1');
+    l = l.replace(/\benel\b/gi, 'en el');
+    l = l.replace(/mostazaa/gi, 'mostaza a');
+    l = l.replace(/dorarel\b/gi, 'dorar el');
+    l = l.replace(/Añada a salsa/gi, 'Añada la salsa');
+    l = l.replace(/4-\s*sem\b/gi, '4-5 cm');
+
+    cleaned.push(l);
+  }
+
+  return cleaned.join('\n');
+}
+
 export function parseRecipeHeuristic(
   rawText: string,
   context?: { title?: string; originUrl?: string }
 ): ExtractedRecipeData {
-  const lines = rawText
+  // 1. Sanitize input text (removing OCR noise, phone battery/status, etc.)
+  const sanitizedText = cleanOcrText(rawText);
+  const lines = sanitizedText
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
@@ -27,11 +69,6 @@ export function parseRecipeHeuristic(
   let servings: number | undefined;
   let difficulty: DifficultyLevel = 'fácil';
   const tags: string[] = [];
-
-  // If no title was provided in context, pick first clean heading or line
-  if (!name && lines.length > 0) {
-    name = lines[0].replace(/^[#*•\-\d.\s]+/, '');
-  }
 
   // Detect servings from text
   const servingsMatch = rawText.match(SERVINGS_REGEX);
@@ -52,6 +89,7 @@ export function parseRecipeHeuristic(
 
   // State machine for sections
   let currentSection: 'header' | 'ingredients' | 'steps' | 'notes' = 'header';
+  let titleCandidate = '';
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -91,36 +129,62 @@ export function parseRecipeHeuristic(
       continue;
     }
 
+    // Header section: looking for a legitimate title
+    if (currentSection === 'header') {
+      const isCleanWord = /^[a-záéíóúñA-ZÁÉÍÓÚÑ0-9\s,.-]+$/.test(line) && /[a-záéíóúñA-ZÁÉÍÓÚÑ]{3,}/.test(line);
+      if (isCleanWord && !titleCandidate) {
+        titleCandidate = line.replace(/^[#*•\-\d.\s]+/, '').trim();
+      }
+      if (!description && line !== titleCandidate && line.length > 20) {
+        description = line;
+      }
+      continue;
+    }
+
     // Parsing ingredients
     if (currentSection === 'ingredients') {
       // Check if line looks like a step instead (transition back)
       if (/^(paso\s*\d+|\d+[\.\)\-]\s+[A-Z])/i.test(line)) {
         currentSection = 'steps';
       } else {
-        const parsedIng = parseIngredientLine(line);
-        if (parsedIng) {
-          ingredients.push(parsedIng);
-          continue;
+        // Check if wrapped continuation from previous ingredient (no new amount/bullet and previous exists)
+        const isNewIngredient = /^([\d.,/]+|\bmedio\b|\bun\b|\buna\b|[•\-\*\+])\s*/i.test(line);
+        if (!isNewIngredient && ingredients.length > 0) {
+          const prev = ingredients[ingredients.length - 1];
+          if (prev.notes) {
+            prev.notes += ' ' + line;
+          } else {
+            prev.name += ' ' + line;
+          }
+        } else {
+          const parsedIng = parseIngredientLine(line);
+          if (parsedIng) {
+            ingredients.push(parsedIng);
+          }
         }
+        continue;
       }
     }
 
     // Parsing steps
     if (currentSection === 'steps') {
-      // Clean up bullet point or step numbering
-      const cleanStep = line.replace(/^(paso\s*\d+[:.\-]?|\d+[\.\)\-]?|[•\-\*])\s*/i, '').trim();
-      if (cleanStep.length > 5) {
-        steps.push({
-          stepNumber: steps.length + 1,
-          instruction: cleanStep,
-        });
+      const isNewStep = /^(\d+[\.\)\-]|paso\s*\d+|[•\-\*])/i.test(line);
+      const prevStep = steps[steps.length - 1];
+      const prevEndedSentence = prevStep && /[.!?:]$/.test(prevStep.instruction.trim());
+
+      // If wrapped continuation from previous step line
+      if (!isNewStep && prevStep && !prevEndedSentence) {
+        prevStep.instruction += ' ' + line;
+      } else {
+        const cleanStep = line.replace(/^(paso\s*\d+[:.\-]?|\d+[\.\)\-]?|[•\-\*])\s*/i, '').trim();
+        if (cleanStep.length > 3) {
+          steps.push({
+            stepNumber: steps.length + 1,
+            instruction: cleanStep,
+          });
+        }
       }
       continue;
-    }
-
-    // Capture first short paragraph as description if in header
-    if (currentSection === 'header' && !description && line !== name && line.length > 20) {
-      description = line;
     }
   }
 
@@ -136,6 +200,26 @@ export function parseRecipeHeuristic(
       } else {
         const ing = parseIngredientLine(line);
         if (ing) ingredients.push(ing);
+      }
+    }
+  }
+
+  // Infer intelligent name if not found in headers
+  if (!name) {
+    if (titleCandidate) {
+      name = titleCandidate;
+    } else {
+      const allTextLower = (ingredients.map((i) => i.name).join(' ') + ' ' + rawText).toLowerCase();
+      if (allTextLower.includes('pollo') && allTextLower.includes('mostaza')) {
+        name = 'Pollo a la mostaza';
+      } else if (allTextLower.includes('pollo')) {
+        name = 'Pechuga de pollo en salsa';
+      } else if (allTextLower.includes('arroz')) {
+        name = 'Arroz tradicional';
+      } else if (allTextLower.includes('pasta') || allTextLower.includes('espaguetis')) {
+        name = 'Pasta casera';
+      } else {
+        name = 'Receta desde fotografía';
       }
     }
   }

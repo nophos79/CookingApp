@@ -1,4 +1,5 @@
 import type { ExtractedRecipeData } from './aiTypes';
+import { parseRecipeHeuristic, cleanOcrText } from './heuristicParser';
 
 const SYSTEM_INSTRUCTION = `Eres un chef profesional y asistente gastronómico de alta precisión. Tu tarea es estructurar o formular una receta de cocina completa, realista y detallada en español, lista para ser cocinada en casa.
 
@@ -212,9 +213,11 @@ export async function extractWithGemini(
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
+  const sanitizedText = cleanOcrText(rawText);
+  const textToUse = sanitizedText || rawText;
   const hasOriginUrl = !!context?.originUrl && context.originUrl.startsWith('http');
-  const hasText = !!rawText && rawText.trim().length > 30 && rawText !== context?.originUrl;
-  const recipeTopic = context?.title?.trim() || (rawText && !rawText.startsWith('http') ? rawText.trim() : 'Receta');
+  const hasText = !!textToUse && textToUse.trim().length > 30 && textToUse !== context?.originUrl;
+  const recipeTopic = context?.title?.trim() || (textToUse && !textToUse.startsWith('http') ? textToUse.slice(0, 80).replace(/\n/g, ' ').trim() : 'Receta');
 
   const ytIdMatch = context?.originUrl?.match(/(?:youtu\.be\/|watch\?v=|shorts\/)([\w-]{11})/);
   const ytId = ytIdMatch ? ytIdMatch[1] : '';
@@ -248,19 +251,19 @@ ${isChefenialsPanizas
 ${context?.title ? `Título: "${context.title}"` : ''}
 
 Texto / Transcripción proporcionada:
-${rawText}
+${textToUse}
 
 Extrae todos los ingredientes con cantidades y unidades, y los pasos ordenados en formato JSON estricto. Si falta algún ingrediente básico para la receta, complétalo con buen criterio culinario.`;
   } else {
     directPrompt = `Texto o título de la receta a procesar:
-${rawText || recipeTopic}
+${textToUse || recipeTopic}
 
-Extrae o genera todos los ingredientes necesarios con cantidades y unidades, y los pasos ordenados de elaboración en formato JSON estricto.`;
+Extrae todos los ingredientes necesarios con cantidades y unidades, y formula los pasos ordenados de elaboración en formato JSON estricto. Sintetiza y redacta los pasos con tus propias palabras claras para cocinar en casa.`;
   }
 
   // Prepend system instruction directly to user prompt to guarantee 100% compatibility across ALL Gemini models
   // (Prevents "Developer instruction is not enabled for this model" errors on models where systemInstruction is not allowed)
-  const fullPrompt = `${SYSTEM_INSTRUCTION}\n\n=========================================\nDATOS Y CONTEXTO DE LA RECETA A ESTRUCTURAR:\n${directPrompt}\n\nIMPORTANTE: Devuelve ÚNICA Y EXCLUSIVAMENTE el objeto JSON válido sin texto adicional.`;
+  const fullPrompt = `${SYSTEM_INSTRUCTION}\n\n=========================================\nDATOS Y CONTEXTO DE LA RECETA A ESTRUCTURAR:\n${directPrompt}\n\nIMPORTANTE: Redacta y sintetiza las explicaciones y pasos con tus propias palabras culinarias profesionales, claras y concisas, sin copiar frases literales protegidas por derechos de autor ni enlaces o promociones de terceros. Devuelve ÚNICA Y EXCLUSIVAMENTE el objeto JSON válido sin texto adicional.`;
 
   const makePayload = (useJsonMime: boolean) => ({
     contents: [{ parts: [{ text: fullPrompt }] }],
@@ -345,19 +348,33 @@ Extrae o genera todos los ingredientes necesarios con cantidades y unidades, y l
   }
 
   const directJson = await directResponse.json();
+  const finishReason = directJson?.candidates?.[0]?.finishReason;
+  const blockReason = directJson?.promptFeedback?.blockReason;
+
   let directText = directJson?.candidates?.[0]?.content?.parts
     ?.map((p: any) => p.text)
     ?.filter(Boolean)
     ?.join('\n') || '';
 
-  // If text is empty (e.g. responseMimeType constraint issue), retry in standard text mode
+  // If text is empty (e.g. responseMimeType constraint issue or RECITATION filter)
   if (!directText.trim()) {
+    console.warn(`Gemini (${model}) respuesta vacía. finishReason: ${finishReason}, blockReason: ${blockReason}`);
+
+    // If recitation blocked or empty, try dedicated rephrasing prompt
     try {
+      const rephrasePrompt = `${SYSTEM_INSTRUCTION}\n\n=========================================\nREGLA ANTIRRECITACIÓN: Adapta, resume y reformula con redacción culinaria propia e independiente la siguiente receta para cocinar en casa, sin copiar frases literales de terceros:\n${directPrompt}\n\nIMPORTANTE: Devuelve ÚNICA Y EXCLUSIVAMENTE el objeto JSON válido.`;
+
       const retryRes = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(makePayload(false)),
-        signal: AbortSignal.timeout(15000),
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: rephrasePrompt }] }],
+          generationConfig: {
+            temperature: 0.3,
+            responseMimeType: 'application/json',
+          },
+        }),
+        signal: AbortSignal.timeout(18000),
       });
       if (retryRes.ok) {
         const retryJson = await retryRes.json();
@@ -367,13 +384,29 @@ Extrae o genera todos los ingredientes necesarios con cantidades y unidades, y l
           ?.join('\n') || '';
       }
     } catch (e) {
-      console.warn('Reintento sin JSON mime falló:', e);
+      console.warn('Reintento con reformulación falló:', e);
+    }
+  }
+
+  // If still empty, cascade to next fallback model
+  if (!directText.trim() && currentAttempts.length < 2) {
+    const nextModel = getNextFallbackModel(model);
+    if (nextModel && !currentAttempts.includes(nextModel)) {
+      console.warn(`Modelo ${model} no devolvió texto, reintentando con ${nextModel}...`);
+      cachedModelName = nextModel;
+      return extractWithGemini(rawText, apiKey, context, [...currentAttempts, model]);
     }
   }
 
   if (!directText.trim()) {
     if (isChefenialsPanizas) {
       return getPanizasDeCadizFallback();
+    }
+    // High-reliability local fallback: if raw text has ingredients or steps, extract them!
+    const localFallback = parseRecipeHeuristic(rawText, context);
+    if (localFallback.ingredients.length > 0 || localFallback.steps.length > 0) {
+      console.log('Gemini no devolvió contenido; estructurado exitosamente con el procesador heurístico local.');
+      return localFallback;
     }
     throw new Error('La IA de Gemini no devolvió contenido.');
   }
@@ -384,6 +417,10 @@ Extrae o genera todos los ingredientes necesarios con cantidades y unidades, y l
   } catch (parseErr) {
     if (isChefenialsPanizas) {
       return getPanizasDeCadizFallback();
+    }
+    const localFallback = parseRecipeHeuristic(rawText, context);
+    if (localFallback.ingredients.length > 0 || localFallback.steps.length > 0) {
+      return localFallback;
     }
     throw parseErr;
   }

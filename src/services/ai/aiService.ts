@@ -42,10 +42,27 @@ export const aiService = {
           'Has seleccionado el motor Gemini pero no has introducido tu clave API. Configúrala en Ajustes (icono de engranaje).'
         );
       }
-      return await extractWithGemini(rawText, settings.geminiApiKey!.trim(), {
-        ...context,
-        modelOverride: settings.geminiModel,
-      });
+      try {
+        return await extractWithGemini(rawText, settings.geminiApiKey!.trim(), {
+          ...context,
+          modelOverride: settings.geminiModel,
+        });
+      } catch (geminiError: any) {
+        console.warn('Gemini falló al estructurar la receta, recurriendo al procesador local:', geminiError);
+        // Fallback to local heuristic parser if rawText has recipe content
+        const hasTextContent = !!rawText && rawText.trim().length > 25;
+        if (hasTextContent) {
+          const localParsed = parseRecipeHeuristic(rawText, context);
+          if (localParsed.ingredients.length > 0 || localParsed.steps.length > 0) {
+            return {
+              ...localParsed,
+              aiAssisted: false,
+              confidenceNotes: 'Estructurado con el procesador local tras incidencia temporal en la API de Gemini.',
+            };
+          }
+        }
+        throw geminiError;
+      }
     }
 
     // 2. Local heuristic parser fallback

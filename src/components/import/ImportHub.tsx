@@ -255,7 +255,9 @@ export const ImportHub: React.FC<ImportHubProps> = ({
     setPhotoError('');
 
     try {
-      const structured = await aiService.extractRecipe(ocrText.trim());
+      const structured = await aiService.extractRecipe(ocrText.trim(), {
+        author: 'Fotografía / Libreta personal',
+      });
 
       onReviewImportedRecipe({
         name: structured.name || 'Receta desde fotografía',
